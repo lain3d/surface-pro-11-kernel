@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+/dts-v1/;
+
+#include "purwa.dtsi"
+#include "hamoa-pmics.dtsi"
+#include "x1-hp-omnibook-x14.dtsi"
+/delete-node/ &backlight;
+/delete-node/ &edp_bl_pwm;
+/delete-node/ &edp_bl_reg_en;
+/delete-node/ &pmc8380_6;
+/delete-node/ &pmc8380_6_thermal;
+/delete-node/ &vreg_edp_bl;
+
+/ {
+	model = "HP OmniBook 5";
+	compatible = "hp,omnibook-5", "lenovo,thinkpad-t14s", "qcom,x1p42100";
+	chassis-type = "laptop";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/x1p42100/hp/omnibook-5/qcdxkmsucpurwa.mbn";
+};
+
+&remoteproc_adsp {
+	firmware-name = "qcom/x1p42100/hp/omnibook-5/qcadsp8380.mbn",
+			"qcom/x1p42100/hp/omnibook-5/adsp_dtbs.elf";
+
+	status = "okay";
+};
+
+&remoteproc_cdsp {
+	firmware-name = "qcom/x1p42100/hp/omnibook-5/qccdsp8380.mbn",
+			"qcom/x1p42100/hp/omnibook-5/cdsp_dtbs.elf";
+
+	status = "okay";
+};
+
+&edp_bl_en {
+	power-source = <0>;
+};
+
+&i2c0 {
+	/delete-node/ touchpad@15;
+};
+
+&i2c2 {
+	clock-frequency = <400000>;
+
+	status = "okay";
+
+	touchpad@15 {
+		compatible = "hid-over-i2c";
+		reg = <0x15>;
+
+		hid-descr-addr = <0x1>;
+		interrupts-extended = <&tlmm 3 IRQ_TYPE_LEVEL_LOW>;
+
+		vdd-supply = <&vreg_misc_3p3>;
+		vddl-supply = <&vreg_l12b_1p2>;
+
+		pinctrl-0 = <&tpad_default>;
+		pinctrl-names = "default";
+
+		wakeup-source;
+	};
+};
+
+&i2c5 {
+	eusb9_repeater: redriver@4b {
+		compatible = "nxp,ptn3222";
+		reg = <0x4b>;
+		#phy-cells = <0>;
+
+		vdd3v3-supply = <&vreg_l13b_3p0>;
+		vdd1v8-supply = <&vreg_l4b_1p8>;
+
+		reset-gpios = <&tlmm 7 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&eusb9_reset_n>;
+		pinctrl-names = "default";
+	};
+};
+
+&mdss_dp3 {
+	aux-bus {
+		panel {
+			/delete-property/ backlight;
+
+			enable-gpios = <&pmc8380_3_gpios 4 GPIO_ACTIVE_HIGH>;
+			pinctrl-0 = <&edp_bl_en>;
+			pinctrl-names = "default";
+		};
+	};
+};
+
+&sound {
+	model = "X1P42100-HP-OMNIBOOK-5";
+};
+
+&tlmm {
+	eusb9_reset_n: eusb9-reset-n-state {
+		pins = "gpio7";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		output-low;
+	};
+};
+
+&usb_2 {
+	dr_mode = "host";
+
+	status = "okay";
+};
+
+&usb_2_hsphy {
+	vdd-supply = <&vreg_l2e_0p8>;
+	vdda12-supply = <&vreg_l3e_1p2>;
+
+	phys = <&eusb9_repeater>;
+
+	status = "okay";
+};
