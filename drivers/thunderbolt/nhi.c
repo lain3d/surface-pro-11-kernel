@@ -465,7 +465,7 @@ static int ring_request_msix(struct tb_ring *ring, bool no_suspend)
 	unsigned long irqflags;
 	int ret;
 
-	if (!nhi->pdev->msix_enabled)
+	if (!nhi->pdev || !nhi->pdev->msix_enabled)
 		return 0;
 
 	ret = ida_alloc_max(&nhi->msix_ida, MSIX_MAX_VECS - 1, GFP_KERNEL);
@@ -1156,8 +1156,8 @@ static void nhi_shutdown(struct tb_nhi *nhi)
 	 * We have to release the irq before calling flush_work. Otherwise an
 	 * already executing IRQ handler could call schedule_work again.
 	 */
-	if (!nhi->pdev->msix_enabled) {
-		devm_free_irq(nhi->dev, nhi->pdev->irq, nhi);
+	if (nhi->irq > 0) {
+		devm_free_irq(nhi->dev, nhi->irq, nhi);
 		flush_work(&nhi->interrupt_work);
 	}
 	ida_destroy(&nhi->msix_ida);
@@ -1168,7 +1168,7 @@ static void nhi_shutdown(struct tb_nhi *nhi)
 
 static void nhi_check_quirks(struct tb_nhi *nhi)
 {
-	if (nhi->pdev->vendor == PCI_VENDOR_ID_INTEL) {
+	if (nhi->pdev && nhi->pdev->vendor == PCI_VENDOR_ID_INTEL) {
 		/*
 		 * Intel hardware supports auto clear of the interrupt
 		 * status register right after interrupt is being
@@ -1201,8 +1201,20 @@ static int nhi_check_iommu_pdev(struct pci_dev *pdev, void *data)
 
 static void nhi_check_iommu(struct tb_nhi *nhi)
 {
-	struct pci_bus *bus = nhi->pdev->bus;
+	struct pci_bus *bus;
 	bool port_ok = false;
+
+	if (!nhi->pdev) {
+		/*
+		 * A non-PCI host router has no PCI hierarchy to inspect, so
+		 * there is nothing to infer Kernel DMA Protection from. Leave
+		 * it off rather than claim protection we have not verified.
+		 */
+		nhi->iommu_dma_protection = false;
+		return;
+	}
+
+	bus = nhi->pdev->bus;
 
 	/*
 	 * Ideally what we'd do here is grab every PCI device that
@@ -1298,6 +1310,8 @@ static int nhi_init_msi(struct tb_nhi *nhi)
 				       IRQF_NO_SUSPEND, "thunderbolt", nhi);
 		if (res)
 			return dev_err_probe(dev, res, "request_irq failed, aborting\n");
+
+		nhi->irq = irq;
 	}
 
 	return 0;

@@ -503,6 +503,7 @@ struct tb_nhi {
 	struct tb_ring **tx_rings;
 	struct tb_ring **rx_rings;
 	struct ida msix_ida;
+	int irq;
 	bool going_away;
 	bool iommu_dma_protection;
 	struct work_struct interrupt_work;
