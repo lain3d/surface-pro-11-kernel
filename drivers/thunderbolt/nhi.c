@@ -139,12 +139,12 @@ static void ring_interrupt_active(struct tb_ring *ring, bool active)
 	else
 		new = old & ~mask;
 
-	dev_dbg(&ring->nhi->pdev->dev,
+	dev_dbg(ring->nhi->dev,
 		"%s interrupt at register %#x bit %d (%#x -> %#x)\n",
 		active ? "enabling" : "disabling", reg, interrupt_bit, old, new);
 
 	if (new == old)
-		dev_WARN(&ring->nhi->pdev->dev,
+		dev_WARN(ring->nhi->dev,
 					 "interrupt for %s %d is already %s\n",
 					 RING_TYPE(ring), ring->hop,
 					 str_enabled_disabled(active));
@@ -512,7 +512,7 @@ static int nhi_alloc_hop(struct tb_nhi *nhi, struct tb_ring *ring)
 	if (nhi->quirks & QUIRK_E2E) {
 		start_hop = RING_FIRST_USABLE_HOPID + 1;
 		if (ring->flags & RING_FLAG_E2E && !ring->is_tx) {
-			dev_dbg(&nhi->pdev->dev, "quirking E2E TX HopID %u -> %u\n",
+			dev_dbg(nhi->dev, "quirking E2E TX HopID %u -> %u\n",
 				ring->e2e_tx_hop, RING_E2E_RESERVED_HOPID);
 			ring->e2e_tx_hop = RING_E2E_RESERVED_HOPID;
 		}
@@ -543,23 +543,23 @@ static int nhi_alloc_hop(struct tb_nhi *nhi, struct tb_ring *ring)
 	}
 
 	if (ring->hop > 0 && ring->hop < start_hop) {
-		dev_warn(&nhi->pdev->dev, "invalid hop: %d\n", ring->hop);
+		dev_warn(nhi->dev, "invalid hop: %d\n", ring->hop);
 		ret = -EINVAL;
 		goto err_unlock;
 	}
 	if (ring->hop < 0 || ring->hop >= nhi->hop_count) {
-		dev_warn(&nhi->pdev->dev, "invalid hop: %d\n", ring->hop);
+		dev_warn(nhi->dev, "invalid hop: %d\n", ring->hop);
 		ret = -EINVAL;
 		goto err_unlock;
 	}
 	if (ring->is_tx && nhi->tx_rings[ring->hop]) {
-		dev_warn(&nhi->pdev->dev, "TX hop %d already allocated\n",
+		dev_warn(nhi->dev, "TX hop %d already allocated\n",
 			 ring->hop);
 		ret = -EBUSY;
 		goto err_unlock;
 	}
 	if (!ring->is_tx && nhi->rx_rings[ring->hop]) {
-		dev_warn(&nhi->pdev->dev, "RX hop %d already allocated\n",
+		dev_warn(nhi->dev, "RX hop %d already allocated\n",
 			 ring->hop);
 		ret = -EBUSY;
 		goto err_unlock;
@@ -584,7 +584,7 @@ static struct tb_ring *tb_ring_alloc(struct tb_nhi *nhi, u32 hop, int size,
 {
 	struct tb_ring *ring = NULL;
 
-	dev_dbg(&nhi->pdev->dev, "allocating %s ring %d of size %d\n",
+	dev_dbg(nhi->dev, "allocating %s ring %d of size %d\n",
 		transmit ? "TX" : "RX", hop, size);
 
 	ring = kzalloc_obj(*ring);
@@ -610,7 +610,7 @@ static struct tb_ring *tb_ring_alloc(struct tb_nhi *nhi, u32 hop, int size,
 	ring->start_poll = start_poll;
 	ring->poll_data = poll_data;
 
-	ring->descriptors = dma_alloc_coherent(&ring->nhi->pdev->dev,
+	ring->descriptors = dma_alloc_coherent(ring->nhi->dev,
 			size * sizeof(*ring->descriptors),
 			&ring->descriptors_dma, GFP_KERNEL | __GFP_ZERO);
 	if (!ring->descriptors)
@@ -627,7 +627,7 @@ static struct tb_ring *tb_ring_alloc(struct tb_nhi *nhi, u32 hop, int size,
 err_release_msix:
 	ring_release_msix(ring);
 err_free_descs:
-	dma_free_coherent(&ring->nhi->pdev->dev,
+	dma_free_coherent(ring->nhi->dev,
 			  ring->size * sizeof(*ring->descriptors),
 			  ring->descriptors, ring->descriptors_dma);
 err_free_ring:
@@ -694,10 +694,10 @@ void tb_ring_start(struct tb_ring *ring)
 	if (ring->nhi->going_away)
 		goto err;
 	if (ring->running) {
-		dev_WARN(&ring->nhi->pdev->dev, "ring already started\n");
+		dev_WARN(ring->nhi->dev, "ring already started\n");
 		goto err;
 	}
-	dev_dbg(&ring->nhi->pdev->dev, "starting %s %d\n",
+	dev_dbg(ring->nhi->dev, "starting %s %d\n",
 		RING_TYPE(ring), ring->hop);
 
 	if (ring->flags & RING_FLAG_FRAME) {
@@ -734,11 +734,11 @@ void tb_ring_start(struct tb_ring *ring)
 			hop &= REG_RX_OPTIONS_E2E_HOP_MASK;
 			flags |= hop;
 
-			dev_dbg(&ring->nhi->pdev->dev,
+			dev_dbg(ring->nhi->dev,
 				"enabling E2E for %s %d with TX HopID %d\n",
 				RING_TYPE(ring), ring->hop, ring->e2e_tx_hop);
 		} else {
-			dev_dbg(&ring->nhi->pdev->dev, "enabling E2E for %s %d\n",
+			dev_dbg(ring->nhi->dev, "enabling E2E for %s %d\n",
 				RING_TYPE(ring), ring->hop);
 		}
 
@@ -772,12 +772,12 @@ void tb_ring_stop(struct tb_ring *ring)
 {
 	spin_lock_irq(&ring->nhi->lock);
 	spin_lock(&ring->lock);
-	dev_dbg(&ring->nhi->pdev->dev, "stopping %s %d\n",
+	dev_dbg(ring->nhi->dev, "stopping %s %d\n",
 		RING_TYPE(ring), ring->hop);
 	if (ring->nhi->going_away)
 		goto err;
 	if (!ring->running) {
-		dev_WARN(&ring->nhi->pdev->dev, "%s %d already stopped\n",
+		dev_WARN(ring->nhi->dev, "%s %d already stopped\n",
 			 RING_TYPE(ring), ring->hop);
 		goto err;
 	}
@@ -826,14 +826,14 @@ void tb_ring_free(struct tb_ring *ring)
 		ring->nhi->rx_rings[ring->hop] = NULL;
 
 	if (ring->running) {
-		dev_WARN(&ring->nhi->pdev->dev, "%s %d still running\n",
+		dev_WARN(ring->nhi->dev, "%s %d still running\n",
 			 RING_TYPE(ring), ring->hop);
 	}
 	spin_unlock_irq(&ring->nhi->lock);
 
 	ring_release_msix(ring);
 
-	dma_free_coherent(&ring->nhi->pdev->dev,
+	dma_free_coherent(ring->nhi->dev,
 			  ring->size * sizeof(*ring->descriptors),
 			  ring->descriptors, ring->descriptors_dma);
 
@@ -841,7 +841,7 @@ void tb_ring_free(struct tb_ring *ring)
 	ring->descriptors_dma = 0;
 
 
-	dev_dbg(&ring->nhi->pdev->dev, "freeing %s %d\n", RING_TYPE(ring),
+	dev_dbg(ring->nhi->dev, "freeing %s %d\n", RING_TYPE(ring),
 		ring->hop);
 
 	/*
@@ -940,7 +940,7 @@ static void nhi_interrupt_work(struct work_struct *work)
 		if ((value & (1 << (bit % 32))) == 0)
 			continue;
 		if (type == 2) {
-			dev_warn(&nhi->pdev->dev,
+			dev_warn(nhi->dev,
 				 "RX overflow for ring %d\n",
 				 hop);
 			continue;
@@ -950,7 +950,7 @@ static void nhi_interrupt_work(struct work_struct *work)
 		else
 			ring = nhi->rx_rings[hop];
 		if (ring == NULL) {
-			dev_warn(&nhi->pdev->dev,
+			dev_warn(nhi->dev,
 				 "got interrupt for inactive %s ring %d\n",
 				 type ? "RX" : "TX",
 				 hop);
@@ -1141,14 +1141,14 @@ static void nhi_shutdown(struct tb_nhi *nhi)
 {
 	int i;
 
-	dev_dbg(&nhi->pdev->dev, "shutdown\n");
+	dev_dbg(nhi->dev, "shutdown\n");
 
 	for (i = 0; i < nhi->hop_count; i++) {
 		if (nhi->tx_rings[i])
-			dev_WARN(&nhi->pdev->dev,
+			dev_WARN(nhi->dev,
 				 "TX ring %d is still active\n", i);
 		if (nhi->rx_rings[i])
-			dev_WARN(&nhi->pdev->dev,
+			dev_WARN(nhi->dev,
 				 "RX ring %d is still active\n", i);
 	}
 	nhi_disable_interrupts(nhi);
@@ -1157,7 +1157,7 @@ static void nhi_shutdown(struct tb_nhi *nhi)
 	 * already executing IRQ handler could call schedule_work again.
 	 */
 	if (!nhi->pdev->msix_enabled) {
-		devm_free_irq(&nhi->pdev->dev, nhi->pdev->irq, nhi);
+		devm_free_irq(nhi->dev, nhi->pdev->irq, nhi);
 		flush_work(&nhi->interrupt_work);
 	}
 	ida_destroy(&nhi->msix_ida);
@@ -1227,7 +1227,7 @@ static void nhi_check_iommu(struct tb_nhi *nhi)
 	pci_walk_bus(bus, nhi_check_iommu_pdev, &port_ok);
 
 	nhi->iommu_dma_protection = port_ok;
-	dev_dbg(&nhi->pdev->dev, "IOMMU DMA protection is %s\n",
+	dev_dbg(nhi->dev, "IOMMU DMA protection is %s\n",
 		str_enabled_disabled(port_ok));
 }
 
@@ -1242,7 +1242,7 @@ static void nhi_reset(struct tb_nhi *nhi)
 		return;
 
 	if (!host_reset) {
-		dev_dbg(&nhi->pdev->dev, "skipping host router reset\n");
+		dev_dbg(nhi->dev, "skipping host router reset\n");
 		return;
 	}
 
@@ -1253,13 +1253,13 @@ static void nhi_reset(struct tb_nhi *nhi)
 	do {
 		val = ioread32(nhi->iobase + REG_RESET);
 		if (!(val & REG_RESET_HRR)) {
-			dev_warn(&nhi->pdev->dev, "host router reset successful\n");
+			dev_warn(nhi->dev, "host router reset successful\n");
 			return;
 		}
 		usleep_range(10, 20);
 	} while (ktime_before(ktime_get(), timeout));
 
-	dev_warn(&nhi->pdev->dev, "timeout resetting host router\n");
+	dev_warn(nhi->dev, "timeout resetting host router\n");
 }
 
 static int nhi_init_msi(struct tb_nhi *nhi)
@@ -1355,6 +1355,7 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return -ENOMEM;
 
 	nhi->pdev = pdev;
+	nhi->dev = dev;
 	nhi->ops = (const struct tb_nhi_ops *)id->driver_data;
 
 	nhi->iobase = pcim_iomap_region(pdev, 0, "thunderbolt");
