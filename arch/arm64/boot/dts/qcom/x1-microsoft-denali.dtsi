@@ -4,6 +4,7 @@
  * Copyright (c) 2025 Dale Whinham <daleyo@gmail.com>
  */
 
+#include <dt-bindings/clock/qcom,x1e80100-camcc.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/input/input.h>
@@ -1464,4 +1465,50 @@
 
 &usb_1_ss1_qmpphy_out {
 	remote-endpoint = <&retimer_ss1_ss_in>;
+};
+
+/*
+ * DEBUG ONLY -- not for upstream.
+ *
+ * reg is a placeholder. The real address is what this branch exists to find:
+ * the driver scans the bus from probe while the sensor is powered, and the i2c
+ * client is created from this node whether or not anything answers at 0x10.
+ *
+ * Probe is expected to fail after the scan -- there is no port/endpoint here
+ * and camss is not wired up, so v4l2_async_register_subdev_sensor() will not
+ * succeed. The scan has already run and logged by then, and the error path
+ * powers the sensor back down.
+ */
+&cci1 {
+	status = "okay";
+};
+
+&cci1_i2c1 {
+	status = "okay";
+
+	camera@10 {
+		compatible = "sony,imx681";
+		reg = <0x10>;
+
+		clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_aon_mclk_default>;
+
+		reset-gpios = <&tlmm 237 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&vreg_l7b_2p8>;
+		dovdd-supply = <&vreg_l3m_1p8>;
+	};
+};
+
+&tlmm {
+	cam_aon_mclk_default: cam-aon-mclk-default-state {
+		pins = "gpio100";
+		function = "cam_aon";
+		drive-strength = <2>;
+		bias-disable;
+	};
 };

@@ -1523,6 +1523,56 @@ static int imx681_get_resources(struct imx681 *imx681)
 	return 0;
 }
 
+/*
+ * DEBUG ONLY -- not for upstream.
+ *
+ * The sensor's I2C address is not recoverable from the Windows firmware: every
+ * Chromatix blob stores exactly one non-empty slaveAddr and it is the module
+ * EEPROM's 0xa0, while sensorSlaveAddress is length 0. A plain i2cdetect cannot
+ * find it either, because nothing powers the sensor until a driver binds --
+ * imx681_power_on() is what enables MCLK, both regulators and releases reset.
+ *
+ * So scan from inside probe, in the window where the part is powered. The i2c
+ * client is created from the DT node whether or not the device answers, so this
+ * runs even though the node's reg is a placeholder.
+ *
+ * Expect two responders on the front sensor's bus: 0x50, the module EEPROM,
+ * which confirms the bus is the right one, and the sensor itself.
+ */
+static bool imx681_addr_scan = true;
+module_param_named(addr_scan, imx681_addr_scan, bool, 0644);
+MODULE_PARM_DESC(addr_scan, "DEBUG: scan the I2C bus while the sensor is powered");
+
+static void imx681_debug_scan_bus(struct i2c_client *client)
+{
+	struct i2c_adapter *adap = client->adapter;
+	unsigned int addr;
+	int found = 0;
+	u8 val;
+
+	dev_info(&client->dev, "DEBUG: scanning %s with the sensor powered\n",
+		 adap->name);
+
+	for (addr = 0x08; addr <= 0x77; addr++) {
+		struct i2c_msg msg = {
+			.addr = addr,
+			.flags = I2C_M_RD,
+			.len = 1,
+			.buf = &val,
+		};
+
+		if (i2c_transfer(adap, &msg, 1) != 1)
+			continue;
+
+		dev_info(&client->dev, "DEBUG:   0x%02x ACK%s\n", addr,
+			 addr == 0x50 ? "  (module EEPROM)" : "");
+		found++;
+	}
+
+	dev_info(&client->dev, "DEBUG: %d responder(s); DT node says 0x%02x\n",
+		 found, client->addr);
+}
+
 static int imx681_probe(struct i2c_client *client)
 {
 	struct imx681 *imx681;
@@ -1553,6 +1603,9 @@ static int imx681_probe(struct i2c_client *client)
 	ret = imx681_power_on(imx681->dev);
 	if (ret)
 		return ret;
+
+	if (imx681_addr_scan)
+		imx681_debug_scan_bus(client);
 
 	ret = imx681_init_controls(imx681);
 	if (ret)
