@@ -2878,6 +2878,31 @@
 			status = "disabled";
 		};
 
+		usb4_2: usb4@1553f000 {
+			compatible = "qcom,x1e80100-usb4";
+			reg = <0 0x1553f000 0 0x000c0000>;
+
+			interrupts = <GIC_SPI 429 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 534 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 438 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "nhi",
+					  "wake",
+					  "misc";
+
+			clocks = <&gcc GCC_USB4_2_MASTER_CLK>,
+				 <&gcc GCC_USB4_2_CFG_AHB_CLK>,
+				 <&gcc GCC_USB4_2_SYS_CLK>,
+				 <&gcc GCC_USB4_2_TMU_CLK>,
+				 <&gcc GCC_USB4_2_SB_IF_CLK>;
+			clock-names = "master",
+				      "cfg_ahb",
+				      "sys",
+				      "tmu",
+				      "sb_if";
+
+			status = "disabled";
+		};
+
 		usb4_0: usb4@1563f000 {
 			compatible = "qcom,x1e80100-usb4";
 			reg = <0 0x1563f000 0 0x000c0000>;
@@ -2894,6 +2919,31 @@
 				 <&gcc GCC_USB4_0_SYS_CLK>,
 				 <&gcc GCC_USB4_0_TMU_CLK>,
 				 <&gcc GCC_USB4_0_SB_IF_CLK>;
+			clock-names = "master",
+				      "cfg_ahb",
+				      "sys",
+				      "tmu",
+				      "sb_if";
+
+			status = "disabled";
+		};
+
+		usb4_1: usb4@1573f000 {
+			compatible = "qcom,x1e80100-usb4";
+			reg = <0 0x1573f000 0 0x000c0000>;
+
+			interrupts = <GIC_SPI 605 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 523 IRQ_TYPE_EDGE_RISING>,
+				     <GIC_SPI 607 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "nhi",
+					  "wake",
+					  "misc";
+
+			clocks = <&gcc GCC_USB4_1_MASTER_CLK>,
+				 <&gcc GCC_USB4_1_CFG_AHB_CLK>,
+				 <&gcc GCC_USB4_1_SYS_CLK>,
+				 <&gcc GCC_USB4_1_TMU_CLK>,
+				 <&gcc GCC_USB4_1_SB_IF_CLK>;
 			clock-names = "master",
 				      "cfg_ahb",
 				      "sys",
