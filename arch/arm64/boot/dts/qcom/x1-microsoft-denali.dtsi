@@ -805,6 +805,18 @@
 	};
 };
 
+&usb4_0 {
+	status = "okay";
+};
+
+&usb4_1 {
+	status = "okay";
+};
+
+&usb4_2 {
+	status = "okay";
+};
+
 &gpu {
 	status = "okay";
 };
