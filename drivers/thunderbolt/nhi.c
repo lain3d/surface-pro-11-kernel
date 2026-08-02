@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <linux/errno.h>
 #include <linux/pci.h>
+#include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
@@ -1274,10 +1275,10 @@ static void nhi_reset(struct tb_nhi *nhi)
 	dev_warn(nhi->dev, "timeout resetting host router\n");
 }
 
-static int nhi_init_msi(struct tb_nhi *nhi)
+static int nhi_init_irq(struct tb_nhi *nhi)
 {
 	struct pci_dev *pdev = nhi->pdev;
-	struct device *dev = &pdev->dev;
+	struct device *dev = nhi->dev;
 	int res, irq, nvec;
 
 	/* In case someone left them on. */
@@ -1286,6 +1287,22 @@ static int nhi_init_msi(struct tb_nhi *nhi)
 	nhi_enable_int_throttling(nhi);
 
 	ida_init(&nhi->msix_ida);
+
+	if (!pdev) {
+		/*
+		 * A platform host router has plain interrupt lines rather
+		 * than MSI-X, so all rings share one handler. nhi->irq was
+		 * filled in by the platform probe.
+		 */
+		INIT_WORK(&nhi->interrupt_work, nhi_interrupt_work);
+
+		res = devm_request_irq(dev, nhi->irq, nhi_msi, IRQF_NO_SUSPEND,
+				       "thunderbolt", nhi);
+		if (res)
+			return dev_err_probe(dev, res, "request_irq failed, aborting\n");
+
+		return 0;
+	}
 
 	/*
 	 * The NHI has 16 MSI-X vectors or a single MSI. We first try to
@@ -1335,7 +1352,7 @@ static struct tb *nhi_select_cm(struct tb_nhi *nhi)
 	 * USB4 case is simple. If we got control of any of the
 	 * capabilities, we use software CM.
 	 */
-	if (tb_acpi_is_native())
+	if (!nhi->pdev || tb_acpi_is_native())
 		return tb_probe(nhi);
 
 	/*
@@ -1350,39 +1367,22 @@ static struct tb *nhi_select_cm(struct tb_nhi *nhi)
 	return tb;
 }
 
-static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+/*
+ * Everything the NHI needs once its registers are mapped and its interrupt
+ * is known, with no reference to how it was enumerated.
+ */
+static int nhi_probe_common(struct tb_nhi *nhi)
 {
-	struct device *dev = &pdev->dev;
-	struct tb_nhi *nhi;
+	struct device *dev = nhi->dev;
 	struct tb *tb;
 	int res;
-
-	if (!nhi_imr_valid(pdev))
-		return dev_err_probe(dev, -ENODEV, "firmware image not valid, aborting\n");
-
-	res = pcim_enable_device(pdev);
-	if (res)
-		return dev_err_probe(dev, res, "cannot enable PCI device, aborting\n");
-
-	nhi = devm_kzalloc(&pdev->dev, sizeof(*nhi), GFP_KERNEL);
-	if (!nhi)
-		return -ENOMEM;
-
-	nhi->pdev = pdev;
-	nhi->dev = dev;
-	nhi->ops = (const struct tb_nhi_ops *)id->driver_data;
-
-	nhi->iobase = pcim_iomap_region(pdev, 0, "thunderbolt");
-	res = PTR_ERR_OR_ZERO(nhi->iobase);
-	if (res)
-		return dev_err_probe(dev, res, "cannot obtain PCI resources, aborting\n");
 
 	nhi->hop_count = ioread32(nhi->iobase + REG_CAPS) & 0x3ff;
 	dev_dbg(dev, "total paths: %d\n", nhi->hop_count);
 
-	nhi->tx_rings = devm_kcalloc(&pdev->dev, nhi->hop_count,
+	nhi->tx_rings = devm_kcalloc(dev, nhi->hop_count,
 				     sizeof(*nhi->tx_rings), GFP_KERNEL);
-	nhi->rx_rings = devm_kcalloc(&pdev->dev, nhi->hop_count,
+	nhi->rx_rings = devm_kcalloc(dev, nhi->hop_count,
 				     sizeof(*nhi->rx_rings), GFP_KERNEL);
 	if (!nhi->tx_rings || !nhi->rx_rings)
 		return -ENOMEM;
@@ -1391,17 +1391,15 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	nhi_check_iommu(nhi);
 	nhi_reset(nhi);
 
-	res = nhi_init_msi(nhi);
+	res = nhi_init_irq(nhi);
 	if (res)
-		return dev_err_probe(dev, res, "cannot enable MSI, aborting\n");
+		return dev_err_probe(dev, res, "cannot enable interrupts, aborting\n");
 
 	spin_lock_init(&nhi->lock);
 
-	res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	res = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 	if (res)
 		return dev_err_probe(dev, res, "failed to set DMA mask\n");
-
-	pci_set_master(pdev);
 
 	if (nhi->ops && nhi->ops->init) {
 		res = nhi->ops->init(nhi);
@@ -1426,17 +1424,107 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		nhi_shutdown(nhi);
 		return res;
 	}
-	pci_set_drvdata(pdev, tb);
+	dev_set_drvdata(dev, tb);
 
-	device_wakeup_enable(&pdev->dev);
+	device_wakeup_enable(dev);
 
-	pm_runtime_allow(&pdev->dev);
-	pm_runtime_set_autosuspend_delay(&pdev->dev, TB_AUTOSUSPEND_DELAY);
-	pm_runtime_use_autosuspend(&pdev->dev);
-	pm_runtime_put_autosuspend(&pdev->dev);
+	pm_runtime_allow(dev);
+	pm_runtime_set_autosuspend_delay(dev, TB_AUTOSUSPEND_DELAY);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_put_autosuspend(dev);
 
 	return 0;
 }
+
+static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+{
+	struct device *dev = &pdev->dev;
+	struct tb_nhi *nhi;
+	int res;
+
+	if (!nhi_imr_valid(pdev))
+		return dev_err_probe(dev, -ENODEV, "firmware image not valid, aborting\n");
+
+	res = pcim_enable_device(pdev);
+	if (res)
+		return dev_err_probe(dev, res, "cannot enable PCI device, aborting\n");
+
+	nhi = devm_kzalloc(dev, sizeof(*nhi), GFP_KERNEL);
+	if (!nhi)
+		return -ENOMEM;
+
+	nhi->pdev = pdev;
+	nhi->dev = dev;
+	nhi->ops = (const struct tb_nhi_ops *)id->driver_data;
+
+	nhi->iobase = pcim_iomap_region(pdev, 0, "thunderbolt");
+	res = PTR_ERR_OR_ZERO(nhi->iobase);
+	if (res)
+		return dev_err_probe(dev, res, "cannot obtain PCI resources, aborting\n");
+
+	pci_set_master(pdev);
+
+	return nhi_probe_common(nhi);
+}
+
+/*
+ * Host routers that are enumerated by ACPI or DT rather than PCI. The
+ * register interface behind them is the one the USB4 specification defines,
+ * so only the plumbing differs: a plain MMIO window and interrupt lines in
+ * place of a BAR and MSI-X.
+ */
+static int nhi_platform_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct tb_nhi *nhi;
+	int irq;
+
+	nhi = devm_kzalloc(dev, sizeof(*nhi), GFP_KERNEL);
+	if (!nhi)
+		return -ENOMEM;
+
+	nhi->dev = dev;
+
+	nhi->iobase = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(nhi->iobase))
+		return dev_err_probe(dev, PTR_ERR(nhi->iobase),
+				     "cannot map registers\n");
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
+	nhi->irq = irq;
+
+	return nhi_probe_common(nhi);
+}
+
+static void nhi_platform_remove(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct tb *tb = dev_get_drvdata(dev);
+
+	pm_runtime_get_sync(dev);
+	pm_runtime_dont_use_autosuspend(dev);
+	pm_runtime_forbid(dev);
+
+	tb_domain_remove(tb);
+	nhi_shutdown(tb->nhi);
+}
+
+static const struct of_device_id nhi_of_match[] = {
+	{ .compatible = "qcom,x1e80100-usb4" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, nhi_of_match);
+
+static struct platform_driver nhi_platform_driver = {
+	.probe = nhi_platform_probe,
+	.remove = nhi_platform_remove,
+	.driver = {
+		.name = "thunderbolt-platform",
+		.of_match_table = nhi_of_match,
+	},
+};
 
 static void nhi_remove(struct pci_dev *pdev)
 {
@@ -1585,13 +1673,21 @@ static int __init nhi_init(void)
 	if (ret)
 		return ret;
 	ret = pci_register_driver(&nhi_driver);
-	if (ret)
+	if (ret) {
 		tb_domain_exit();
+		return ret;
+	}
+	ret = platform_driver_register(&nhi_platform_driver);
+	if (ret) {
+		pci_unregister_driver(&nhi_driver);
+		tb_domain_exit();
+	}
 	return ret;
 }
 
 static void __exit nhi_unload(void)
 {
+	platform_driver_unregister(&nhi_platform_driver);
 	pci_unregister_driver(&nhi_driver);
 	tb_domain_exit();
 }
