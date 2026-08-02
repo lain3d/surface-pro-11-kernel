@@ -14,6 +14,7 @@
 #include <linux/errno.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
+#include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
@@ -1476,14 +1477,23 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 static int nhi_platform_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct clk_bulk_data *clks;
 	struct tb_nhi *nhi;
-	int irq;
+	int irq, ret;
 
 	nhi = devm_kzalloc(dev, sizeof(*nhi), GFP_KERNEL);
 	if (!nhi)
 		return -ENOMEM;
 
 	nhi->dev = dev;
+
+	/*
+	 * Unlike a PCI host router, nothing has powered this one up for us:
+	 * the register window does not respond until its clocks run.
+	 */
+	ret = devm_clk_bulk_get_all_enabled(dev, &clks);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "cannot enable clocks\n");
 
 	nhi->iobase = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(nhi->iobase))
