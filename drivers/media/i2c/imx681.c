@@ -44,6 +44,19 @@
  * Frame length (0x0340) is not written by any recovered table either, so
  * rather than invent one the driver reads it back from the sensor after
  * programming a mode and derives the vertical blanking limits from that.
+ *
+ * WHAT THE VENDOR'S OWN SENSOR LIB DOES
+ *
+ * Qualcomm's CamX carries exactly one IMX681-specific function,
+ * GetSensorModeIndex(). It is entered for a request of 4032x3024 at 30 fps or
+ * below, and returns the index of the 3520x2640 mode -- so the vendor caps
+ * this sensor at 30 fps and substitutes the smaller mode for a full-array
+ * request at that rate.
+ *
+ * The mode list below is still ordered largest-first, per the usual
+ * convention. Whether 4032x3024 is actually reachable at 30 fps over a single
+ * lane is untested; if it is not, that substitution is the reason, and a
+ * consumer that wants 30 fps should ask for 3520x2640.
  */
 
 #include <linux/clk.h>
