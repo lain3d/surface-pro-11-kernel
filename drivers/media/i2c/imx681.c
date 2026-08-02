@@ -21,9 +21,29 @@
  *
  * and every mode's x_addr_end - x_addr_start + 1 equals its x_output_size.
  *
- * Untested on hardware: nothing has streamed with this driver. Frame rates and
- * link frequencies are derived from the sensor's own PLL registers rather than
- * from documentation, so they are the most likely thing to be wrong.
+ * UNVERIFIED ASSUMPTIONS
+ *
+ * Nothing has streamed with this driver, and the blob does not describe
+ * everything a driver needs. These are inferences from the SMIA/CCS
+ * conventions Sony follows, not things the recovered data states:
+ *
+ *  - Bayer order. The blob never writes 0x0101 (image_orientation), so the
+ *    CFA phase is unknown. SRGGB10 is a guess and has a one-in-four chance
+ *    of being right; a captured frame with wrong colour will say so at once.
+ *  - Streaming is started and stopped through 0x0100. Standard for SMIA,
+ *    but the blob never writes it -- the Windows stack does that itself.
+ *  - Exposure at 0x0202 and analogue gain at 0x0204 are the SMIA-standard
+ *    locations. The blob writes 0x0204 (to zero) but never 0x0202.
+ *  - Analogue gain range 0..1023. A typical IMX value, not a measured one.
+ *  - Link frequency is computed from the op-PLL dividers assuming
+ *    op_sys_clk_div is 1, because the blob never writes 0x030b.
+ *  - There is no chip-ID check, because no model-ID register appears in the
+ *    blob and none is documented here. The driver will therefore bind to
+ *    whatever answers at its I2C address.
+ *
+ * Frame length (0x0340) is not written by any recovered table either, so
+ * rather than invent one the driver reads it back from the sensor after
+ * programming a mode and derives the vertical blanking limits from that.
  */
 
 #include <linux/clk.h>
@@ -61,6 +81,12 @@
 #define IMX681_VBLANK_MIN		4
 #define IMX681_VTS_MAX			0xffff
 
+/*
+ * Used only if reading frame_length_lines back from the sensor fails. It is a
+ * placeholder, not a specified value.
+ */
+#define IMX681_VTS_FALLBACK(h)		((h) + 128)
+
 static const char * const imx681_supply_names[] = {
 	"dovdd",	/* Digital I/O power */
 	"avdd",		/* Analog power */
@@ -80,8 +106,6 @@ struct imx681_mode {
 	u32 width;
 	u32 height;
 	u32 hts;
-	u32 vts_def;
-	u32 vts_min;
 	u32 link_freq_index;
 	struct imx681_reg_list reg_list;
 };
@@ -1018,8 +1042,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 4032,
 		.height = 3024,
 		.hts = 6752,
-		.vts_def = 3124,
-		.vts_min = 3124,
 		.link_freq_index = 0,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_4032x3024),
@@ -1030,8 +1052,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3840,
 		.height = 2640,
 		.hts = 6752,
-		.vts_def = 2740,
-		.vts_min = 2740,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2640),
@@ -1042,8 +1062,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3520,
 		.height = 2640,
 		.hts = 6752,
-		.vts_def = 2740,
-		.vts_min = 2740,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3520x2640),
@@ -1054,8 +1072,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3660,
 		.height = 2440,
 		.hts = 6752,
-		.vts_def = 2540,
-		.vts_min = 2540,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3660x2440),
@@ -1066,8 +1082,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3840,
 		.height = 2160,
 		.hts = 5408,
-		.vts_def = 2260,
-		.vts_min = 2260,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_1),
@@ -1078,8 +1092,6 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3840,
 		.height = 2160,
 		.hts = 6752,
-		.vts_def = 2260,
-		.vts_min = 2260,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_2),
@@ -1107,6 +1119,7 @@ struct imx681 {
 	struct v4l2_ctrl *exposure;
 
 	const struct imx681_mode *cur_mode;
+	u32 cur_vts;
 };
 
 static inline struct imx681 *to_imx681(struct v4l2_subdev *sd)
@@ -1184,6 +1197,7 @@ static int imx681_power_off(struct device *dev)
 static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct imx681 *imx681 = to_imx681(sd);
+	u64 val;
 	int ret;
 
 	if (!enable) {
@@ -1206,6 +1220,22 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 				imx681->cur_mode->reg_list.num_of_regs);
 	if (ret)
 		goto err;
+
+	/*
+	 * No recovered table sets frame_length_lines, so ask the sensor what
+	 * the mode left it at rather than assuming a value.
+	 */
+	ret = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_FRAME_LENGTH),
+		       &val, NULL);
+	if (!ret && val > imx681->cur_mode->height) {
+		imx681->cur_vts = val;
+		__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
+					 IMX681_VTS_MAX - imx681->cur_mode->height,
+					 1, val - imx681->cur_mode->height);
+	} else {
+		dev_warn(imx681->dev,
+			 "frame_length_lines unreadable, using a placeholder\n");
+	}
 
 	ret = __v4l2_ctrl_handler_setup(&imx681->ctrl_handler);
 	if (ret)
@@ -1231,6 +1261,7 @@ static int imx681_set_ctrl(struct v4l2_ctrl *ctrl)
 
 	if (ctrl->id == V4L2_CID_VBLANK) {
 		s64 max = imx681->cur_mode->height + ctrl->val;
+
 
 		__v4l2_ctrl_modify_range(imx681->exposure,
 					 imx681->exposure->minimum, max - 8,
@@ -1335,10 +1366,9 @@ static int imx681_set_format(struct v4l2_subdev *sd,
 	hblank = mode->hts - mode->width;
 	__v4l2_ctrl_modify_range(imx681->hblank, hblank, hblank, 1, hblank);
 
-	__v4l2_ctrl_modify_range(imx681->vblank,
-				 mode->vts_min - mode->height,
+	__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
 				 IMX681_VTS_MAX - mode->height, 1,
-				 mode->vts_def - mode->height);
+				 IMX681_VTS_FALLBACK(mode->height) - mode->height);
 
 	return 0;
 }
@@ -1406,7 +1436,7 @@ static int imx681_init_controls(struct imx681 *imx681)
 	if (imx681->hblank)
 		imx681->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	vblank_def = mode->vts_def - mode->height;
+	vblank_def = IMX681_VTS_FALLBACK(mode->height) - mode->height;
 	vblank_max = IMX681_VTS_MAX - mode->height;
 	imx681->vblank = v4l2_ctrl_new_std(hdlr, &imx681_ctrl_ops,
 					   V4L2_CID_VBLANK, IMX681_VBLANK_MIN,
@@ -1415,7 +1445,7 @@ static int imx681_init_controls(struct imx681 *imx681)
 	imx681->exposure = v4l2_ctrl_new_std(hdlr, &imx681_ctrl_ops,
 					     V4L2_CID_EXPOSURE,
 					     IMX681_EXPOSURE_MIN,
-					     mode->vts_def - 8,
+					     IMX681_VTS_FALLBACK(mode->height) - 8,
 					     IMX681_EXPOSURE_STEP,
 					     IMX681_EXPOSURE_DEFAULT);
 
