@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/i2c/sony,imx681.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Sony IMX681 CMOS Sensor
+
+maintainers:
+  - Linux Media Mailing List <linux-media@vger.kernel.org>
+
+description:
+  The Sony IMX681 is a CMOS image sensor with a single-lane MIPI CSI-2
+  interface, used as the front camera of the Microsoft Surface Pro 11 where it
+  is enumerated by ACPI as SONY0681. It outputs 10-bit Bayer with a maximum
+  array of 4032x3024 and requires a 19.2 MHz external clock.
+
+allOf:
+  - $ref: /schemas/media/video-interface-devices.yaml#
+
+properties:
+  compatible:
+    const: sony,imx681
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+    description: External clock (EXTCLK), 19.2 MHz.
+
+  avdd-supply:
+    description: Analogue circuit voltage supply.
+
+  dovdd-supply:
+    description: I/O circuit voltage supply.
+
+  reset-gpios:
+    description: Active low GPIO connected to the XCLR pad of the sensor.
+
+  port:
+    $ref: /schemas/graph.yaml#/$defs/port-base
+    additionalProperties: false
+
+    properties:
+      endpoint:
+        $ref: /schemas/media/video-interfaces.yaml#
+        additionalProperties: false
+
+        properties:
+          data-lanes:
+            items:
+              - const: 1
+          link-frequencies: true
+          remote-endpoint: true
+
+        required:
+          - data-lanes
+          - link-frequencies
+          - remote-endpoint
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        camera@1a {
+            compatible = "sony,imx681";
+            reg = <0x1a>;
+
+            reset-gpios = <&tlmm 237 GPIO_ACTIVE_LOW>;
+            pinctrl-names = "default";
+            pinctrl-0 = <&cam_front_default>;
+
+            clocks = <&imx681_clk>;
+            assigned-clocks = <&imx681_clk>;
+            assigned-clock-rates = <19200000>;
+
+            avdd-supply = <&vreg_l7b_2p8>;
+            dovdd-supply = <&vreg_l3m_1p8>;
+
+            orientation = <0>;
+            rotation = <0>;
+
+            port {
+                imx681_ep: endpoint {
+                    remote-endpoint = <&csiphy2_ep>;
+                    data-lanes = <1>;
+                    link-frequencies = /bits/ 64 <998400000 1200000000>;
+                };
+            };
+        };
+    };
+...
