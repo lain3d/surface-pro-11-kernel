@@ -2889,6 +2889,8 @@
 					  "wake",
 					  "misc";
 
+			iommus = <&apps_smmu 0x14c0 0x0>;
+
 			power-domains = <&gcc GCC_USB4_2_GDSC>;
 
 			clocks = <&gcc GCC_USB4_2_MASTER_CLK>,
@@ -2916,6 +2918,8 @@
 					  "wake",
 					  "misc";
 
+			iommus = <&apps_smmu 0x1440 0x0>;
+
 			power-domains = <&gcc GCC_USB4_0_GDSC>;
 
 			clocks = <&gcc GCC_USB4_0_MASTER_CLK>,
@@ -2942,6 +2946,8 @@
 			interrupt-names = "nhi",
 					  "wake",
 					  "misc";
+
+			iommus = <&apps_smmu 0x1480 0x0>;
 
 			power-domains = <&gcc GCC_USB4_1_GDSC>;
 
