@@ -1512,3 +1512,37 @@
 		bias-disable;
 	};
 };
+
+/*
+ * DEBUG ONLY -- not for upstream.
+ *
+ * Enable every CCI bus so the scan can see all four. hamoa has two CCI
+ * controllers with two buses each, and only cci1_i2c1 is normally on -- the
+ * bus the front IMX681 sits on.
+ *
+ * docs/camera-sensors.md infers the other two sensors sit on cci0: the IR
+ * VD55G0 on cci0_i2c0 and the rear OV13858 on cci0_i2c1. That inference is
+ * what this is meant to test.
+ *
+ * IMPORTANT: a silent bus is NOT evidence that nothing is there. The front
+ * sensor only answered because this driver powers it -- MCLK, both regulators
+ * and reset release -- before scanning. The rear and IR sensors have no driver
+ * here, so their reset lines stay asserted and they will not ACK. What this
+ * can settle is which bus 0x1a lives on, and whether anything answers without
+ * being powered at all.
+ */
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
+
+&cci1_i2c0 {
+	status = "okay";
+};

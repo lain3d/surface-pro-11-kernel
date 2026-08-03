@@ -63,6 +63,7 @@
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
+#include <linux/of.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/pm_runtime.h>
@@ -1543,15 +1544,15 @@ static bool imx681_addr_scan = true;
 module_param_named(addr_scan, imx681_addr_scan, bool, 0644);
 MODULE_PARM_DESC(addr_scan, "DEBUG: scan the I2C bus while the sensor is powered");
 
-static void imx681_debug_scan_bus(struct i2c_client *client)
+static void imx681_debug_scan_adapter(struct device *dev,
+				      struct i2c_adapter *adap,
+				      const char *label)
 {
-	struct i2c_adapter *adap = client->adapter;
 	unsigned int addr;
 	int found = 0;
 	u8 val;
 
-	dev_info(&client->dev, "DEBUG: scanning %s with the sensor powered\n",
-		 adap->name);
+	dev_info(dev, "DEBUG: scanning %s (%s)\n", label, adap->name);
 
 	for (addr = 0x08; addr <= 0x77; addr++) {
 		struct i2c_msg msg = {
@@ -1564,13 +1565,46 @@ static void imx681_debug_scan_bus(struct i2c_client *client)
 		if (i2c_transfer(adap, &msg, 1) != 1)
 			continue;
 
-		dev_info(&client->dev, "DEBUG:   0x%02x ACK%s\n", addr,
+		dev_info(dev, "DEBUG:   %s 0x%02x ACK%s\n", label, addr,
 			 addr == 0x50 ? "  (module EEPROM)" : "");
 		found++;
 	}
 
-	dev_info(&client->dev, "DEBUG: %d responder(s); DT node says 0x%02x\n",
-		 found, client->addr);
+	dev_info(dev, "DEBUG: %s -- %d responder(s)\n", label, found);
+}
+
+/*
+ * Walk every enabled CCI bus, not just the one this sensor is on.
+ *
+ * A silent bus proves nothing: only this sensor is powered, so a part still
+ * held in reset cannot answer. What a full sweep does settle is which bus each
+ * responder is on -- in particular whether the unidentified 0x1a is confined to
+ * the front sensor's bus, which would rule out the IR sensor and leave the
+ * module's actuator as the candidate.
+ */
+static void imx681_debug_scan_all_cci(struct device *dev)
+{
+	struct device_node *cci = NULL;
+	struct device_node *bus;
+	struct i2c_adapter *adap;
+
+	for_each_compatible_node(cci, NULL, "qcom,msm8996-cci") {
+		if (!of_device_is_available(cci))
+			continue;
+
+		for_each_available_child_of_node(cci, bus) {
+			adap = of_find_i2c_adapter_by_node(bus);
+			if (!adap) {
+				dev_info(dev, "DEBUG: %pOFn/%pOFn has no adapter\n",
+					 cci, bus);
+				continue;
+			}
+			imx681_debug_scan_adapter(dev, adap, adap->dev.of_node ?
+						  adap->dev.of_node->full_name :
+						  "?");
+			i2c_put_adapter(adap);
+		}
+	}
 }
 
 static int imx681_probe(struct i2c_client *client)
@@ -1605,7 +1639,7 @@ static int imx681_probe(struct i2c_client *client)
 		return ret;
 
 	if (imx681_addr_scan)
-		imx681_debug_scan_bus(client);
+		imx681_debug_scan_all_cci(&client->dev);
 
 	ret = imx681_init_controls(imx681);
 	if (ret)
