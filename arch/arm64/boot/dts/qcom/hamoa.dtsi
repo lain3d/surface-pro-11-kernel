@@ -2889,6 +2889,8 @@
 					  "wake",
 					  "misc";
 
+			power-domains = <&gcc GCC_USB4_2_GDSC>;
+
 			clocks = <&gcc GCC_USB4_2_MASTER_CLK>,
 				 <&gcc GCC_USB4_2_CFG_AHB_CLK>,
 				 <&gcc GCC_USB4_2_SYS_CLK>,
@@ -2914,6 +2916,8 @@
 					  "wake",
 					  "misc";
 
+			power-domains = <&gcc GCC_USB4_0_GDSC>;
+
 			clocks = <&gcc GCC_USB4_0_MASTER_CLK>,
 				 <&gcc GCC_USB4_0_CFG_AHB_CLK>,
 				 <&gcc GCC_USB4_0_SYS_CLK>,
@@ -2938,6 +2942,8 @@
 			interrupt-names = "nhi",
 					  "wake",
 					  "misc";
+
+			power-domains = <&gcc GCC_USB4_1_GDSC>;
 
 			clocks = <&gcc GCC_USB4_1_MASTER_CLK>,
 				 <&gcc GCC_USB4_1_CFG_AHB_CLK>,
