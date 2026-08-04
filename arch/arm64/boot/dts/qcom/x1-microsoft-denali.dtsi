@@ -4,6 +4,7 @@
  * Copyright (c) 2025 Dale Whinham <daleyo@gmail.com>
  */
 
+#include <dt-bindings/clock/qcom,x1e80100-camcc.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/input/input.h>
@@ -480,6 +481,13 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l7b_2p8: ldo7 {
+			regulator-name = "vreg_l7b_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l8b_3p0: ldo8 {
 			regulator-name = "vreg_l8b_3p0";
 			regulator-min-microvolt = <3072000>;
@@ -526,6 +534,13 @@
 			regulator-name = "vreg_l15b_1p8";
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l16b_2p9: ldo16 {
+			regulator-name = "vreg_l16b_2p9";
+			regulator-min-microvolt = <2912000>;
+			regulator-max-microvolt = <2912000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
@@ -725,6 +740,66 @@
 			regulator-name = "vreg_l3j_0p8";
 			regulator-min-microvolt = <880000>;
 			regulator-max-microvolt = <880000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	regulators-8 {
+		compatible = "qcom,pm8010-rpmh-regulators";
+		qcom,pmic-id = "m";
+
+		vdd-l1-l2-supply = <&vreg_s5j_1p2>;
+		vdd-l3-l4-supply = <&vreg_s4c_1p8>;
+		vdd-l5-supply = <&vreg_bob1>;
+		vdd-l6-supply = <&vreg_s4c_1p8>;
+		vdd-l7-supply = <&vreg_bob1>;
+
+		vreg_l1m_1p2: ldo1 {
+			regulator-name = "vreg_l1m_1p2";
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l2m_1p15: ldo2 {
+			regulator-name = "vreg_l2m_1p15";
+			regulator-min-microvolt = <1152000>;
+			regulator-max-microvolt = <1152000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l3m_1p8: ldo3 {
+			regulator-name = "vreg_l3m_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l4m_1p8: ldo4 {
+			regulator-name = "vreg_l4m_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l5m_2p8: ldo5 {
+			regulator-name = "vreg_l5m_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l6m_1p8: ldo6 {
+			regulator-name = "vreg_l6m_1p8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l7m_2p8: ldo7 {
+			regulator-name = "vreg_l7m_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
@@ -1390,4 +1465,84 @@
 
 &usb_1_ss1_qmpphy_out {
 	remote-endpoint = <&retimer_ss1_ss_in>;
+};
+
+/*
+ * DEBUG ONLY -- not for upstream.
+ *
+ * reg is a placeholder. The real address is what this branch exists to find:
+ * the driver scans the bus from probe while the sensor is powered, and the i2c
+ * client is created from this node whether or not anything answers at 0x10.
+ *
+ * Probe is expected to fail after the scan -- there is no port/endpoint here
+ * and camss is not wired up, so v4l2_async_register_subdev_sensor() will not
+ * succeed. The scan has already run and logged by then, and the error path
+ * powers the sensor back down.
+ */
+&cci1 {
+	status = "okay";
+};
+
+&cci1_i2c1 {
+	status = "okay";
+
+	camera@10 {
+		compatible = "sony,imx681";
+		reg = <0x10>;
+
+		clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
+		assigned-clock-rates = <19200000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_aon_mclk_default>;
+
+		reset-gpios = <&tlmm 237 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&vreg_l7b_2p8>;
+		dovdd-supply = <&vreg_l3m_1p8>;
+	};
+};
+
+&tlmm {
+	cam_aon_mclk_default: cam-aon-mclk-default-state {
+		pins = "gpio100";
+		function = "cam_aon";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
+/*
+ * DEBUG ONLY -- not for upstream.
+ *
+ * Enable every CCI bus so the scan can see all four. hamoa has two CCI
+ * controllers with two buses each, and only cci1_i2c1 is normally on -- the
+ * bus the front IMX681 sits on.
+ *
+ * docs/camera-sensors.md infers the other two sensors sit on cci0: the IR
+ * VD55G0 on cci0_i2c0 and the rear OV13858 on cci0_i2c1. That inference is
+ * what this is meant to test.
+ *
+ * IMPORTANT: a silent bus is NOT evidence that nothing is there. The front
+ * sensor only answered because this driver powers it -- MCLK, both regulators
+ * and reset release -- before scanning. The rear and IR sensors have no driver
+ * here, so their reset lines stay asserted and they will not ACK. What this
+ * can settle is which bus 0x1a lives on, and whether anything answers without
+ * being powered at all.
+ */
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	status = "okay";
+};
+
+&cci1_i2c0 {
+	status = "okay";
 };
