@@ -118,6 +118,20 @@
 	};
 
 	reserved-memory {
+
+		/*
+		 * Console log in DRAM, so a boot that kills the root filesystem can
+		 * still be read afterwards. 1 MiB inside the hole between the wpss
+		 * DTB region and xbl-sc; nothing else is described there.
+		 */
+		ramoops@b0000000 {
+			compatible = "ramoops";
+			reg = <0x0 0xb0000000 0x0 0x100000>;
+			console-size = <0x40000>;
+			record-size = <0x4000>;
+			pmsg-size = <0x20000>;
+			ftrace-size = <0x0>;
+		};
 		linux,cma {
 			compatible = "shared-dma-pool";
 			size = <0x0 0x8000000>;
