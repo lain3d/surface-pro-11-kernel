@@ -8,6 +8,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/phy/phy.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
 #include "hamoa-pmics.dtsi"
@@ -1497,16 +1498,20 @@
 };
 
 /*
- * DEBUG ONLY -- not for upstream.
+ * Front camera: Sony IMX681, ACPI SONY0681.
  *
- * reg is a placeholder. The real address is what this branch exists to find:
- * the driver scans the bus from probe while the sensor is powered, and the i2c
- * client is created from this node whether or not anything answers at 0x10.
+ * The bus, MCLK, pinmux function, reset line and both rails were recovered from
+ * the Windows driver-store blobs (see docs/camera-sensors.md). The I2C address
+ * 0x10 is no longer a placeholder -- a bus scan from the driver's own probe
+ * answered at 0x10, and at 0x50, which is the module EEPROM on the same bus and
+ * therefore confirms this is the right CCI bus.
  *
- * Probe is expected to fail after the scan -- there is no port/endpoint here
- * and camss is not wired up, so v4l2_async_register_subdev_sensor() will not
- * succeed. The scan has already run and logged by then, and the error path
- * powers the sensor back down.
+ * gpio100's pinmux function is cam_aon, not cam_mclk: this sensor hangs off the
+ * always-on CCI bus, which is the one detail that pattern-matching the other two
+ * sensors gets wrong.
+ *
+ * Single CSI-2 data lane -- the sensor blob writes 0x0114 = 0, and Sony encodes
+ * lanes - 1.
  */
 &cci1 {
 	status = "okay";
@@ -1530,7 +1535,48 @@
 
 		avdd-supply = <&vreg_l7b_2p8>;
 		dovdd-supply = <&vreg_l3m_1p8>;
+
+		orientation = <0>;	/* front facing */
+
+		port {
+			imx681_ep: endpoint {
+				data-lanes = <1>;
+				link-frequencies = /bits/ 64 <998400000 1200000000>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
 	};
+};
+
+&camss {
+	status = "okay";
+
+	ports {
+		/*
+		 * port0 => csiphy0, port1 => csiphy1,
+		 * port2 => csiphy2, port3 => csiphy4
+		 *
+		 * The front camera is on CSIPHY 2, from the per-sensor connection
+		 * word in CAMP_PCFG_MSHW0495.bin.
+		 */
+		port@2 {
+			csiphy2_ep: endpoint@2 {
+				reg = <2>;
+				clock-lanes = <7>;
+				data-lanes = <0>;
+				remote-endpoint = <&imx681_ep>;
+			};
+		};
+	};
+};
+
+&csiphy2 {
+	vdda-0p8-supply = <&vreg_l2c_0p8>;
+	vdda-1p2-supply = <&vreg_l1c_1p2>;
+
+	phy-type = <PHY_TYPE_DPHY>;
+
+	status = "okay";
 };
 
 &tlmm {
