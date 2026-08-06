@@ -38,8 +38,8 @@
  *    of being right; a captured frame with wrong colour will say so at once.
  *  - Streaming is started and stopped through 0x0100. Standard for SMIA,
  *    but the blob never writes it -- the Windows stack does that itself.
- *  - Exposure at 0x0202 and analogue gain at 0x0204 are the SMIA-standard
- *    locations. The blob writes 0x0204 (to zero) but never 0x0202.
+ *  - Analogue gain is at the SMIA-standard 0x0204. Exposure is NOT at the
+ *    standard 0x0202 on this part: see the comment on IMX681_REG_EXPOSURE.
  *  - Analogue gain range 0..1023. A typical IMX value, not a measured one.
  *  - Link frequency is computed from the op-PLL dividers assuming
  *    op_sys_clk_div is 1, because the blob never writes 0x030b.
@@ -82,8 +82,36 @@
 #define IMX681_MODE_STANDBY		0x00
 #define IMX681_MODE_STREAMING		0x01
 
-#define IMX681_REG_FRAME_LENGTH		0x0340
-#define IMX681_REG_EXPOSURE		0x0202
+/*
+ * Frame length and exposure are NOT at the SMIA/CCS addresses on this part.
+ *
+ * 0x0340 and 0x0202 exist and ACK writes, but silently discard them -- measured
+ * on hardware by writing and reading back, with 0x0100 toggled in the same run
+ * as a positive control so a dead write path could not masquerade as a
+ * read-only register.
+ *
+ * The vendor tables never write 0x0340 either, which is the corroborating half:
+ * the same extraction does contain 0x380e/0x380f for the OV13858, whose values
+ * mainline can check, so the omission is real and not a gap in the decode.
+ *
+ * What the tables do write, once per mode, is 0x033e/0x033f and 0x022a/0x022b:
+ *
+ *   mode          y_out   LLP    0x033e   0x022a
+ *   4032x3024      3024   6752     3554     1000
+ *   3840x2640      2640   6752     3554     3546
+ *   3840x2160      2160   5408     2218     2210
+ *   3520x2640      2640   6752     3554     3546
+ *   3660x2440      2440   6752     3554     3546
+ *
+ * 0x022a is 0x033e - 8 in every mode table, which is SMIA's
+ * coarse_integration_time = frame_length_lines - margin exactly; and it is 1000
+ * in the full-resolution table, so it is a settable exposure rather than a
+ * derived limit. With the PLL the sensor reports, 6752 x 3554 gives 6.00 fps
+ * and 5408 x 2218 gives 12.00 fps -- exact integers, which a mis-identified
+ * register pair would not produce.
+ */
+#define IMX681_REG_FRAME_LENGTH		0x033e
+#define IMX681_REG_EXPOSURE		0x022a
 #define IMX681_EXPOSURE_MIN		4
 #define IMX681_EXPOSURE_STEP		1
 #define IMX681_EXPOSURE_DEFAULT		0x0640
