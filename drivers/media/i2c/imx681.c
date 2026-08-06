@@ -1573,6 +1573,49 @@ static void imx681_debug_scan_bus(struct i2c_client *client)
 		 found, client->addr);
 }
 
+/*
+ * Ask the device what it is.
+ *
+ * Probe otherwise performs no I2C at all: an i2c client is declared by the DT
+ * node, not discovered, so it is created whether or not anything answers at
+ * that address. Without this, a successful probe proves the clock, the rails,
+ * the reset line and the media graph -- and says nothing about the silicon.
+ *
+ * There is no value to check against, because the vendor blob carries no
+ * model-ID register: no probe/chipId/expectedData record group exists in any of
+ * the three sensor-module blobs. But that is a fact about the blob, not about
+ * the part. SMIA puts a model ID at 0x0000 and CCS a sensor model ID at 0x0016,
+ * and Sony's IMX parts follow those conventions, so the registers are very
+ * likely implemented even though Qualcomm's stack never reads them.
+ *
+ * Therefore: logged, never fatal. Gating probe on a value nobody has observed
+ * would be inventing a constant that looks researched. If these read back
+ * 0x0681 the question is settled and this becomes a real chip-ID check.
+ */
+static void imx681_debug_identify(struct imx681 *imx681)
+{
+	static const struct {
+		u32 reg;
+		const char *name;
+	} ids[] = {
+		{ CCI_REG16(0x0000), "model_id        (SMIA 0x0000)" },
+		{ CCI_REG16(0x0016), "sensor_model_id (CCS  0x0016)" },
+	};
+	unsigned int i;
+	u64 val;
+	int ret;
+
+	for (i = 0; i < ARRAY_SIZE(ids); i++) {
+		ret = cci_read(imx681->regmap, ids[i].reg, &val, NULL);
+		if (ret)
+			dev_info(imx681->dev, "ID: %s read failed (%d)\n",
+				 ids[i].name, ret);
+		else
+			dev_info(imx681->dev, "ID: %s = 0x%04llx\n",
+				 ids[i].name, val);
+	}
+}
+
 static int imx681_probe(struct i2c_client *client)
 {
 	struct imx681 *imx681;
@@ -1606,6 +1649,9 @@ static int imx681_probe(struct i2c_client *client)
 
 	if (imx681_addr_scan)
 		imx681_debug_scan_bus(client);
+
+	/* The only I2C that probe() ever does. */
+	imx681_debug_identify(imx681);
 
 	ret = imx681_init_controls(imx681);
 	if (ret)
