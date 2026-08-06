@@ -62,6 +62,9 @@ struct mipi_csi2phy_device_regs {
 };
 
 #define MAX_CSI2PHY_CLKS 8
+/* debug: force C-PHY lane programming, defined in phy-qcom-mipi-csi2-3ph-dphy.c */
+extern bool cphy_force;
+
 struct mipi_csi2phy_clk_freq {
 	u32 num_freq;
 	u32 freq[MAX_CSI2PHY_CLKS];

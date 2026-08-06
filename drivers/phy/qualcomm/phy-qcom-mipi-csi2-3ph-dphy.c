@@ -197,8 +197,11 @@ mipi_csi2phy_lane_regs lane_regs_x1e80100_cphy[] = {
  *
  * Off by default; nothing changes unless it is set. Gated on the parameter
  * alone rather than on the SoC, because it is an experiment, not a feature.
+ *
+ * Not static: phy_qcom_mipi_csi2_set_clock_rates() in the core file reads it
+ * to pick the 400 MHz timer rate the recovered settle counts assume.
  */
-static bool cphy_force;
+bool cphy_force;
 module_param(cphy_force, bool, 0644);
 MODULE_PARM_DESC(cphy_force, "x1e80100 debug: force C-PHY lane programming");
 

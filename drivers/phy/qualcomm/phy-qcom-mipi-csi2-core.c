@@ -66,7 +66,12 @@ phy_qcom_mipi_csi2_set_clock_rates(struct mipi_csi2phy_device *csi2phy,
 		/* if sensor pixel clock is not available
 		 * set highest possible CSIPHY clock rate
 		 */
-		if (min_rate == 0)
+		/*
+		 * cphy_force: the recovered C-PHY settle counts are in 2.5 ns
+		 * ticks, i.e. a 400 MHz timer. The default pick lands one
+		 * entry low here, which stretches every settle by 1.5x.
+		 */
+		if (min_rate == 0 || cphy_force)
 			j = clk_freq->num_freq - 1;
 
 		round_rate = clk_round_rate(clk, clk_freq->freq[j]);
