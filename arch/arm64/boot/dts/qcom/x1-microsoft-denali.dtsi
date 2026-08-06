@@ -1568,6 +1568,7 @@
 		orientation = <0>;	/* front facing */
 
 		leds = <&privacy_led>;
+		led-names = "privacy";
 
 		port {
 			imx681_ep: endpoint {

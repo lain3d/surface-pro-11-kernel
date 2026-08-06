@@ -1274,7 +1274,7 @@ static void imx681_debug_dump_state(struct imx681 *imx681, const char *when)
 		{ CCI_REG16(0x034c), "x_output_size    " },
 		{ CCI_REG16(0x034e), "y_output_size    " },
 		{ CCI_REG16(0x022a), "exposure      LIVE" },
-		{ CCI_REG16(0x0202), "exposure      dead" },
+		{ CCI_REG16(0x0202), "exposure    mirror" },
 		{ CCI_REG16(0x0204), "analogue_gain    " },
 		{ CCI_REG8(0x0301), "vt_pix_clk_div   " },
 		{ CCI_REG8(0x0303), "vt_sys_clk_div   " },
