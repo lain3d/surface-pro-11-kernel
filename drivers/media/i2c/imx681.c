@@ -21,6 +21,12 @@
  *
  * and every mode's x_addr_end - x_addr_start + 1 equals its x_output_size.
  *
+ * The blob carries no model-ID register, which had been read as the part not
+ * having one. That was a fact about the blob, not the silicon: SMIA places a
+ * model ID at 0x0000 and CCS a sensor model ID at 0x0016, and on a Surface Pro
+ * 11 the sensor reports 0x0000 for the former and 0x0681 for the latter. So the
+ * part identifies itself after all, and this driver checks it.
+ *
  * UNVERIFIED ASSUMPTIONS
  *
  * Nothing has streamed with this driver, and the blob does not describe
@@ -37,9 +43,6 @@
  *  - Analogue gain range 0..1023. A typical IMX value, not a measured one.
  *  - Link frequency is computed from the op-PLL dividers assuming
  *    op_sys_clk_div is 1, because the blob never writes 0x030b.
- *  - There is no chip-ID check, because no model-ID register appears in the
- *    blob and none is documented here. The driver will therefore bind to
- *    whatever answers at its I2C address.
  *
  * Frame length (0x0340) is not written by any recovered table either, so
  * rather than invent one the driver reads it back from the sensor after
@@ -71,6 +74,9 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-fwnode.h>
+
+#define IMX681_REG_CHIP_ID		0x0016
+#define IMX681_CHIP_ID			0x0681
 
 #define IMX681_REG_MODE_SELECT		0x0100
 #define IMX681_MODE_STANDBY		0x00
@@ -1523,6 +1529,33 @@ static int imx681_get_resources(struct imx681 *imx681)
 	return 0;
 }
 
+/*
+ * Confirm the part before trusting any of the recovered register sequences on
+ * it. Nothing else in probe touches the bus: an i2c client is declared by its DT
+ * node rather than discovered, so without this the driver binds successfully
+ * even with no sensor physically present.
+ *
+ * CCS puts the sensor model ID at 0x0016. SMIA's 0x0000 is not implemented on
+ * this part and reads zero, so it is not worth checking.
+ */
+static int imx681_identify_sensor(struct imx681 *imx681)
+{
+	u64 val;
+	int ret;
+
+	ret = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_CHIP_ID), &val, NULL);
+	if (ret)
+		return dev_err_probe(imx681->dev, ret,
+			     "cannot read the chip ID\n");
+
+	if (val != IMX681_CHIP_ID)
+		return dev_err_probe(imx681->dev, -ENODEV,
+			     "chip ID 0x%04llx, expected 0x%04x\n",
+			     val, IMX681_CHIP_ID);
+
+	return 0;
+}
+
 static int imx681_probe(struct i2c_client *client)
 {
 	struct imx681 *imx681;
@@ -1553,6 +1586,10 @@ static int imx681_probe(struct i2c_client *client)
 	ret = imx681_power_on(imx681->dev);
 	if (ret)
 		return ret;
+
+	ret = imx681_identify_sensor(imx681);
+	if (ret)
+		goto err_power_off;
 
 	ret = imx681_init_controls(imx681);
 	if (ret)
