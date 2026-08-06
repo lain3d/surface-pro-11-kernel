@@ -1207,6 +1207,60 @@ static int imx681_power_off(struct device *dev)
 	return 0;
 }
 
+/*
+ * Read back what the sensor thinks its configuration is, after the mode has
+ * been programmed.
+ *
+ * The recovered tables are not known to be complete: they came from the vendor
+ * blob, and the Windows stack demonstrably writes some things itself (0x0100 is
+ * the known example). When the sensor is programmed but emits nothing, the
+ * question is always which of these is wrong, and guessing from outside has
+ * already cost a round trip.
+ *
+ * frame_length_lines is the one to watch. No recovered table writes 0x0340, so
+ * if it reads back 0 the sensor has no frame height and will not produce frames,
+ * whatever else is correct.
+ */
+static void imx681_debug_dump_state(struct imx681 *imx681, const char *when)
+{
+	static const struct {
+		u32 reg;
+		const char *name;
+	} regs[] = {
+		{ CCI_REG8(0x0100), "mode_select      " },
+		{ CCI_REG8(0x0114), "csi_lane_mode    " },
+		{ CCI_REG16(0x0112), "csi_data_format  " },
+		{ CCI_REG16(0x0136), "extclk_freq_mhz  " },
+		{ CCI_REG16(0x0340), "frame_length_line" },
+		{ CCI_REG16(0x0342), "line_length_pck  " },
+		{ CCI_REG16(0x034c), "x_output_size    " },
+		{ CCI_REG16(0x034e), "y_output_size    " },
+		{ CCI_REG16(0x0202), "coarse_integ_time" },
+		{ CCI_REG16(0x0204), "analogue_gain    " },
+		{ CCI_REG8(0x0301), "vt_pix_clk_div   " },
+		{ CCI_REG8(0x0303), "vt_sys_clk_div   " },
+		{ CCI_REG8(0x0305), "pre_pll_clk_div  " },
+		{ CCI_REG16(0x0306), "pll_multiplier   " },
+		{ CCI_REG8(0x0309), "op_pix_clk_div   " },
+		{ CCI_REG8(0x030b), "op_sys_clk_div   " },
+		{ CCI_REG8(0x030d), "op_pre_pll_div   " },
+		{ CCI_REG16(0x030e), "op_pll_multiplier" },
+	};
+	unsigned int i;
+	u64 val;
+	int ret;
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		ret = cci_read(imx681->regmap, regs[i].reg, &val, NULL);
+		if (ret)
+			dev_info(imx681->dev, "STATE[%s]: %s READ FAILED (%d)\n",
+				 when, regs[i].name, ret);
+		else
+			dev_info(imx681->dev, "STATE[%s]: %s = 0x%04llx (%llu)\n",
+				 when, regs[i].name, val, val);
+	}
+}
+
 static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct imx681 *imx681 = to_imx681(sd);
@@ -1247,8 +1301,11 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 					 1, val - imx681->cur_mode->height);
 	} else {
 		dev_warn(imx681->dev,
-			 "frame_length_lines unreadable, using a placeholder\n");
+			 "frame_length_lines unusable: ret=%d val=%llu height=%u -- the sensor will probably not stream\n",
+			 ret, val, imx681->cur_mode->height);
 	}
+
+	imx681_debug_dump_state(imx681, "after-mode");
 
 	ret = __v4l2_ctrl_handler_setup(&imx681->ctrl_handler);
 	if (ret)
@@ -1258,6 +1315,8 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 			IMX681_MODE_STREAMING, NULL);
 	if (ret)
 		goto err;
+
+	imx681_debug_dump_state(imx681, "streaming");
 
 	return 0;
 
