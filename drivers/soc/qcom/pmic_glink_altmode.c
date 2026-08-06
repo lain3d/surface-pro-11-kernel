@@ -542,10 +542,83 @@ static void pmic_glink_altmode_put_switch(void *data)
 	typec_switch_put(data);
 }
 
+/*
+ * PAN_EN is where Linux announces itself to charger_pd, which is already
+ * running on the ADSP and already owns the port. On a machine whose root
+ * filesystem hangs off that port, joining the conversation has been observed to
+ * drop the USB link ~15ms later - but only ever during boot, never afterwards.
+ *
+ * So the parameter is writable: boot with 0, then once userspace is up
+ *
+ *     echo 1 > /sys/module/pmic_glink_altmode/parameters/pan_enable
+ *
+ * requests notifications with nothing hammering the disk. Suppressing it
+ * outright costs USB-C DisplayPort entirely, because drm_aux_hpd_bridge_notify()
+ * is only ever called from the worker those notifications drive.
+ */
+static bool pan_enable = true;
+
+/*
+ * The single probed instance, so a runtime write can reach its enable_work.
+ * Cleared on unbind - this driver does not unbind in practice, but the struct is
+ * devm-allocated and a dangling pointer would be wrong either way.
+ */
+static struct pmic_glink_altmode *pan_altmode;
+static DEFINE_MUTEX(pan_lock);
+
+static void pmic_glink_altmode_clear_instance(void *unused)
+{
+	guard(mutex)(&pan_lock);
+	pan_altmode = NULL;
+}
+
+static int pan_enable_set(const char *val, const struct kernel_param *kp)
+{
+	bool was = pan_enable;
+	int ret;
+
+	guard(mutex)(&pan_lock);
+
+	ret = param_set_bool(val, kp);
+	if (ret)
+		return ret;
+
+	/*
+	 * Only the off -> on edge does anything. There is no way to un-request
+	 * notifications once the remote is sending them, so writing 0 later only
+	 * records the intent for the next boot.
+	 */
+	if (pan_enable && !was && pan_altmode) {
+		dev_info(pan_altmode->dev,
+			 "pan_enable turned on at runtime, requesting notifications\n");
+		schedule_work(&pan_altmode->enable_work);
+	}
+
+	return 0;
+}
+
+static const struct kernel_param_ops pan_enable_ops = {
+	.set = pan_enable_set,
+	.get = param_get_bool,
+};
+
+module_param_cb(pan_enable, &pan_enable_ops, &pan_enable, 0644);
+MODULE_PARM_DESC(pan_enable,
+		 "Request Type-C port notifications from the remote (default 1). "
+		 "Writable: boot with 0, write 1 once userspace is up to defer it.");
+
 static void pmic_glink_altmode_enable_worker(struct work_struct *work)
 {
 	struct pmic_glink_altmode *altmode = work_to_altmode(work);
 	int ret;
+
+	if (!pan_enable) {
+		dev_info(altmode->dev,
+			 "pan_enable=0, not requesting altmode notifications\n");
+		return;
+	}
+
+	dev_info(altmode->dev, "requesting altmode notifications (PAN_EN)\n");
 
 	ret = pmic_glink_altmode_request(altmode, ALTMODE_PAN_EN, 0);
 	if (ret)
@@ -695,6 +768,13 @@ static int pmic_glink_altmode_probe(struct auxiliary_device *adev,
 		return PTR_ERR(altmode->client);
 
 	pmic_glink_client_register(altmode->client);
+
+	scoped_guard(mutex, &pan_lock)
+		pan_altmode = altmode;
+
+	ret = devm_add_action_or_reset(dev, pmic_glink_altmode_clear_instance, NULL);
+	if (ret)
+		return ret;
 
 	return 0;
 }

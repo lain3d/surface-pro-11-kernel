@@ -148,6 +148,7 @@ static int ps883x_configure(struct ps883x_retimer *retimer, int cfg0,
 			    int cfg1, int cfg2, bool reset)
 {
 	struct device *dev = &retimer->client->dev;
+	unsigned int cur0, cur1, cur2;
 	int ret;
 
 	if (reset) {
@@ -165,6 +166,22 @@ static int ps883x_configure(struct ps883x_retimer *retimer, int cfg0,
 		msleep(60);
 
 		retimer->in_reset = false;
+	}
+
+	/*
+	 * Do not rewrite values the retimer already holds. These are plain
+	 * regmap_write()s, so an identical write still pokes the chip's
+	 * connection state machine, and doing that to a link firmware brought
+	 * up costs a USB -EPROTO about 18ms later. On a machine booting from a
+	 * USB-C disk, that link is the root filesystem.
+	 */
+	if (!regmap_read(retimer->regmap, REG_USB_PORT_CONN_STATUS_0, &cur0) &&
+	    !regmap_read(retimer->regmap, REG_USB_PORT_CONN_STATUS_1, &cur1) &&
+	    !regmap_read(retimer->regmap, REG_USB_PORT_CONN_STATUS_2, &cur2) &&
+	    cur0 == cfg0 && cur1 == cfg1 && cur2 == cfg2) {
+		dev_info(dev, "conn_status already %02x/%02x/%02x, not reprogramming\n",
+			 cfg0, cfg1, cfg2);
+		return 0;
 	}
 
 	ret = regmap_write(retimer->regmap, REG_USB_PORT_CONN_STATUS_0, cfg0);
@@ -293,6 +310,11 @@ static int ps883x_sw_set(struct typec_switch_dev *sw,
 
 	guard(mutex)(&retimer->lock);
 
+	dev_info(&retimer->client->dev, "sw_set: cached=%d notified=%d -> %s\n",
+		 retimer->orientation, orientation,
+		 retimer->orientation == orientation ?
+		 "no change, not touching the chip" : "updating conn_status_0");
+
 	if (retimer->orientation != orientation) {
 		retimer->orientation = orientation;
 
@@ -382,6 +404,7 @@ static int ps883x_retimer_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
 	struct typec_switch_desc sw_desc = { };
+	int configured;
 	struct typec_retimer_desc rtmr_desc = { };
 	struct ps883x_retimer *retimer;
 	int ret;
@@ -442,9 +465,43 @@ static int ps883x_retimer_probe(struct i2c_client *client)
 	}
 
 	/* skip resetting if already configured */
-	if (regmap_test_bits(retimer->regmap, REG_USB_PORT_CONN_STATUS_0,
-			     CONN_STATUS_0_CONNECTION_PRESENT) == 1) {
+	configured = regmap_test_bits(retimer->regmap, REG_USB_PORT_CONN_STATUS_0,
+				      CONN_STATUS_0_CONNECTION_PRESENT);
+	dev_info(dev, "probe: CONNECTION_PRESENT=%d -> %s\n", configured,
+		 configured == 1 ? "leaving retimer running" : "resetting retimer");
+
+	if (configured == 1) {
+		unsigned int st0;
+
 		gpiod_direction_output(retimer->reset_gpio, 0);
+
+		/*
+		 * Seed the cached orientation from what firmware left in the
+		 * chip. Without this it stays at the zero devm_kzalloc gave it,
+		 * TYPEC_ORIENTATION_NONE, and the first orientation
+		 * notification looks like a change even when nothing changed -
+		 * so ps883x_sw_set() reaches for a live retimer's
+		 * REG_USB_PORT_CONN_STATUS_0 and the link drops ~16ms later.
+		 */
+		if (!regmap_read(retimer->regmap, REG_USB_PORT_CONN_STATUS_0, &st0)) {
+			retimer->orientation = (st0 & CONN_STATUS_0_ORIENTATION_REVERSED) ?
+					       TYPEC_ORIENTATION_REVERSE :
+					       TYPEC_ORIENTATION_NORMAL;
+			dev_info(dev, "probe: conn_status_0=%02x -> seeding orientation=%d\n",
+				 st0, retimer->orientation);
+		}
+
+		/*
+		 * Firmware left this retimer configured and passing traffic, so
+		 * leave it running. Do NOT fall through to the reset below: on a
+		 * machine that boots from a USB-C disk that traffic is the root
+		 * filesystem, and asserting reset drops the link a few
+		 * milliseconds later with "cmd cmplt err -71" and a disconnect.
+		 *
+		 * in_reset stays false, so the first ps883x_configure() writes the
+		 * connection-status registers directly, which is what a chip that
+		 * is already out of reset needs.
+		 */
 	} else {
 		gpiod_direction_output(retimer->reset_gpio, 1);
 
@@ -455,10 +512,10 @@ static int ps883x_retimer_probe(struct i2c_client *client)
 
 		/* firmware initialization delay */
 		msleep(60);
-	}
 
-	/* Keep the retimer in reset until a Type-C notification comes */
-	ps883x_reset(retimer);
+		/* Keep the retimer in reset until a Type-C notification comes */
+		ps883x_reset(retimer);
+	}
 
 	sw_desc.drvdata = retimer;
 	sw_desc.fwnode = dev_fwnode(dev);
