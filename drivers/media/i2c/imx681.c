@@ -36,8 +36,11 @@
  *  - Bayer order. The blob never writes 0x0101 (image_orientation), so the
  *    CFA phase is unknown. SRGGB10 is a guess and has a one-in-four chance
  *    of being right; a captured frame with wrong colour will say so at once.
- *  - Streaming is started and stopped through 0x0100. Standard for SMIA,
- *    but the blob never writes it -- the Windows stack does that itself.
+ *  - Streaming is started and stopped through 0x0100. The blob DOES carry
+ *    this, as its own single-entry sequence, along with 0x0104 = 1 / 0
+ *    around it -- a grouped parameter hold, which this driver does not do.
+ *    An earlier note here claimed the blob never writes 0x0100; that was an
+ *    artifact of the extractor silently dropping every single-entry array.
  *  - Analogue gain is at the SMIA-standard 0x0204. Exposure is NOT at the
  *    standard 0x0202 on this part: see the comment on IMX681_REG_EXPOSURE.
  *  - Analogue gain range 0..1023. A typical IMX value, not a measured one.
@@ -1265,11 +1268,13 @@ static void imx681_debug_dump_state(struct imx681 *imx681, const char *when)
 		{ CCI_REG8(0x0114), "csi_lane_mode    " },
 		{ CCI_REG16(0x0112), "csi_data_format  " },
 		{ CCI_REG16(0x0136), "extclk_freq_mhz  " },
-		{ CCI_REG16(0x0340), "frame_length_line" },
+		{ CCI_REG16(0x033e), "frame_length  LIVE" },
+		{ CCI_REG16(0x0340), "frame_length  dead" },
 		{ CCI_REG16(0x0342), "line_length_pck  " },
 		{ CCI_REG16(0x034c), "x_output_size    " },
 		{ CCI_REG16(0x034e), "y_output_size    " },
-		{ CCI_REG16(0x0202), "coarse_integ_time" },
+		{ CCI_REG16(0x022a), "exposure      LIVE" },
+		{ CCI_REG16(0x0202), "exposure      dead" },
 		{ CCI_REG16(0x0204), "analogue_gain    " },
 		{ CCI_REG8(0x0301), "vt_pix_clk_div   " },
 		{ CCI_REG8(0x0303), "vt_sys_clk_div   " },
@@ -1333,6 +1338,16 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 		__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
 					 IMX681_VTS_MAX - imx681->cur_mode->height,
 					 1, val - imx681->cur_mode->height);
+
+		/*
+		 * modify_range moves the DEFAULT but leaves a current value that is
+		 * still inside the new range. Without this the stale vblank of 128
+		 * survives, and __v4l2_ctrl_handler_setup() below writes
+		 * height + 128 back over the frame length the mode table just set.
+		 * Measured: table 3554 -> driver left 3152.
+		 */
+		__v4l2_ctrl_s_ctrl(imx681->vblank,
+					   val - imx681->cur_mode->height);
 	} else {
 		dev_warn(imx681->dev,
 			 "frame_length_lines unusable: ret=%d val=%llu height=%u -- the sensor will probably not stream\n",

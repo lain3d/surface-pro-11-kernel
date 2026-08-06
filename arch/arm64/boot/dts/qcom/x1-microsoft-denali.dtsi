@@ -8,6 +8,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/gpio-keys.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
@@ -31,6 +32,34 @@
 			linux,code = <SW_LID>;
 			wakeup-source;
 			wakeup-event-action = <EV_ACT_DEASSERTED>;
+		};
+	};
+
+	/*
+	 * Front camera privacy LED, gpio225.
+	 *
+	 * Declared by ACPI CAMP (_HID QCOM0C32, _SUB MSHW0495) as one of exactly
+	 * two GPIOs; the other, 105, is cci_i2c and is already owned by
+	 * ac16000.cci. Nothing else in the system claims 225.
+	 *
+	 * Confirmed on hardware as a 2x2 rather than by asserting it once: the LED
+	 * lights only when 225 is high AND the camera is powered, and neither alone
+	 * does anything. So it sits on a rail that only comes up in the sensor's
+	 * power_on(), with 225 as its enable -- the right way to build a privacy
+	 * LED, since it cannot be lit while the camera is off.
+	 *
+	 * It is an indicator, not an interlock: driving it high does not make the
+	 * sensor emit. It is wired up because without it the camera would capture
+	 * with the LED dark once streaming works, which is not acceptable.
+	 */
+	camera-privacy-led {
+		compatible = "gpio-leds";
+
+		privacy_led: led-0 {
+			gpios = <&tlmm 225 GPIO_ACTIVE_HIGH>;
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_WHITE>;
+			default-state = "off";
 		};
 	};
 
@@ -1537,6 +1566,8 @@
 		dovdd-supply = <&vreg_l3m_1p8>;
 
 		orientation = <0>;	/* front facing */
+
+		leds = <&privacy_led>;
 
 		port {
 			imx681_ep: endpoint {
