@@ -12,6 +12,7 @@
 #include <linux/of.h>
 #include <linux/phy/phy.h>
 #include <linux/phy/phy-mipi-dphy.h>
+#include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
@@ -20,6 +21,16 @@
 #include <linux/slab.h>
 
 #include "phy-qcom-mipi-csi2.h"
+
+/*
+ * Debug: take the top CSIPHY timer rate regardless of C-PHY. Independent of
+ * cphy_force so D-PHY at 400 MHz can be measured on its own -- this driver
+ * should then produce settle_cnt 0x1d, matching Windows' D-PHY formula for the
+ * same link, which checks that both stacks agree about settle arithmetic.
+ */
+static bool timer_400;
+module_param(timer_400, bool, 0644);
+MODULE_PARM_DESC(timer_400, "x1e80100 debug: force the 400 MHz CSIPHY timer");
 
 #define CAMSS_CLOCK_MARGIN_NUMERATOR 105
 #define CAMSS_CLOCK_MARGIN_DENOMINATOR 100
@@ -71,7 +82,7 @@ phy_qcom_mipi_csi2_set_clock_rates(struct mipi_csi2phy_device *csi2phy,
 		 * ticks, i.e. a 400 MHz timer. The default pick lands one
 		 * entry low here, which stretches every settle by 1.5x.
 		 */
-		if (min_rate == 0 || cphy_force)
+		if (min_rate == 0 || cphy_force || timer_400)
 			j = clk_freq->num_freq - 1;
 
 		round_rate = clk_round_rate(clk, clk_freq->freq[j]);
@@ -245,6 +256,31 @@ static int phy_qcom_mipi_csi2_probe(struct platform_device *pdev)
 	csi2phy->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(csi2phy->base))
 		return PTR_ERR(csi2phy->base);
+
+	/*
+	 * The CSIPHY interrupt: the DT routes it and ops->isr decodes it, but
+	 * nothing ever requested the line, so the block's own error reporting
+	 * has never reached anyone. lanes_enable() masks every source unless
+	 * cphy_force is set, so on the default path this changes nothing.
+	 */
+	ret = platform_get_irq(pdev, 0);
+	if (ret < 0) {
+		dev_warn(dev, "no CSIPHY irq, error reporting stays off: %d\n",
+			 ret);
+	} else {
+		csi2phy->irq = ret;
+		ret = devm_request_irq(dev, csi2phy->irq,
+				       csi2phy->soc_cfg->ops->isr, 0,
+				       dev_name(dev), csi2phy);
+		if (ret) {
+			dev_warn(dev, "CSIPHY irq %d request failed: %d\n",
+				 csi2phy->irq, ret);
+			csi2phy->irq = 0;
+		} else {
+			dev_info(dev, "CSIPHY irq %d requested\n",
+				 csi2phy->irq);
+		}
+	}
 
 	generic_phy = devm_phy_create(dev, NULL, &phy_qcom_mipi_csi2_ops);
 	if (IS_ERR(generic_phy)) {

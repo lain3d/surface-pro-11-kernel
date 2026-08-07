@@ -425,10 +425,15 @@ static void phy_qcom_mipi_csi2_reset(struct mipi_csi2phy_device *csi2phy)
 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
 }
 
+#define CSIPHY_IRQ_STORM_LIMIT 5000
+static atomic_t csiphy_irq_count = ATOMIC_INIT(0);
+
 static irqreturn_t phy_qcom_mipi_csi2_isr(int irq, void *dev)
 {
 	const struct mipi_csi2phy_device *csi2phy = dev;
 	const struct mipi_csi2phy_device_regs *regs = csi2phy_dev_to_regs(csi2phy);
+	u8 status[11];
+	bool any = false;
 	int i;
 
 	for (i = 0; i < 11; i++) {
@@ -436,8 +441,38 @@ static irqreturn_t phy_qcom_mipi_csi2_isr(int irq, void *dev)
 		u8 val = readl_relaxed(csi2phy->base +
 				       CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset, i));
 
+		status[i] = val;
+		if (val)
+			any = true;
+
 		writel_relaxed(val, csi2phy->base +
 			       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, c));
+	}
+
+	/*
+	 * Report rather than silently ack. This is the whole point of wiring
+	 * the line up: a flat vfe0 says nothing about where the link fails,
+	 * and these eleven words are the block's own account of it.
+	 */
+	if (any)
+		dev_warn_ratelimited(csi2phy->dev,
+				     "csiphy irq: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+				     status[0], status[1], status[2], status[3],
+				     status[4], status[5], status[6], status[7],
+				     status[8], status[9], status[10]);
+
+	/*
+	 * Runaway guard. The ack sequence below looks correct, but this line
+	 * has never been enabled on this hardware and a screaming irq would
+	 * cost a power cycle. Mask everything and say so, once.
+	 */
+	if (atomic_inc_return(&csiphy_irq_count) > CSIPHY_IRQ_STORM_LIMIT) {
+		for (i = 11; i < 22; i++)
+			writel_relaxed(0, csi2phy->base +
+				       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, i));
+		dev_err_ratelimited(csi2phy->dev,
+				    "csiphy irq storm past %d, masking all sources\n",
+				    CSIPHY_IRQ_STORM_LIMIT);
 	}
 
 	writel_relaxed(0x1, csi2phy->base +
@@ -643,10 +678,23 @@ static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 	else
 		phy_qcom_mipi_csi2_gen1_config_lanes(csi2phy, cfg, settle_cnt);
 
-	/* IRQ_MASK registers - disable all interrupts */
-	for (i = 11; i < 22; i++) {
-		writel_relaxed(0, csi2phy->base +
-			       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, i));
+	/*
+	 * IRQ_MASK registers. Stock behaviour is to disable every source, which
+	 * is why the block has never reported anything. Under cphy_force,
+	 * unmask them and reset the storm counter for this stream.
+	 */
+	if (cphy_force) {
+		atomic_set(&csiphy_irq_count, 0);
+		for (i = 11; i < 22; i++) {
+			writel_relaxed(0xff, csi2phy->base +
+				       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, i));
+		}
+		dev_info(csi2phy->dev, "csiphy: irq sources unmasked\n");
+	} else {
+		for (i = 11; i < 22; i++) {
+			writel_relaxed(0, csi2phy->base +
+				       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, i));
+		}
 	}
 
 	return 0;
