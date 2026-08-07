@@ -736,6 +736,51 @@ static bool phy_qcom_mipi_csi2_is_gen2(struct mipi_csi2phy_device *csi2phy)
 	return regs->generation == GEN2;
 }
 
+/*
+ * Windows' CSIDPhyReset, FUN_140006028 in qccammipicsi8380.sys. Runs between
+ * the RefGen check and the per-frequency table, i.e. before anything this
+ * driver's lanes_enable() writes.
+ *
+ * The existing phy_qcom_mipi_csi2_reset() below covers only the first of these
+ * two pulses, and is dead code -- power_on() never calls ->reset.
+ */
+static const u16 csiphy_reset_lanes_cphy[] = { 0x025c, 0x065c, 0x0a5c };
+static const u16 csiphy_reset_lanes_dphy[] = {
+	0x0e18, 0x0018, 0x0418, 0x0818, 0x0c18,
+};
+
+static bool win_reset;
+module_param(win_reset, bool, 0644);
+MODULE_PARM_DESC(win_reset, "x1e80100 debug: run Windows' CSIPHY reset before lane config");
+
+static void phy_qcom_mipi_csi2_windows_reset(struct mipi_csi2phy_device *csi2phy)
+{
+	const struct mipi_csi2phy_device_regs *regs = csi2phy_dev_to_regs(csi2phy);
+	const u16 *lane = cphy_force ? csiphy_reset_lanes_cphy
+				     : csiphy_reset_lanes_dphy;
+	int n = cphy_force ? ARRAY_SIZE(csiphy_reset_lanes_cphy)
+			   : ARRAY_SIZE(csiphy_reset_lanes_dphy);
+	u32 val = cphy_force ? 0x10 : 0x01;
+	int i;
+
+	/* common. Windows waits 20 ns here, not the 5-8 ms below. */
+	writel_relaxed(0x1, csi2phy->base +
+		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
+	ndelay(20);
+	writel_relaxed(0x0, csi2phy->base +
+		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
+
+	for (i = 0; i < n; i++) {
+		writel_relaxed(val, csi2phy->base + lane[i]);
+		ndelay(100);
+		writel_relaxed(0x0, csi2phy->base + lane[i]);
+	}
+
+	dev_info(csi2phy->dev,
+		 "csiphy: reset -- common CTRL0, then %d %s blocks pulsed 0x%02x\n",
+		 n, cphy_force ? "C-PHY trio" : "D-PHY lane", val);
+}
+
 static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 					   struct mipi_csi2phy_stream_cfg *cfg)
 {
@@ -744,7 +789,25 @@ static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 	u8 settle_cnt;
 	u8 val;
 	u8 ctrl5_val;
+	u32 status19;
 	int i;
+
+	/*
+	 * STATUS19 bit 7 is "RefGen Ready". Windows checks it by that name
+	 * immediately before starting the PHY and logs "RefGen is Not Ready"
+	 * when it is clear. It starts anyway, so it is diagnostic rather than a
+	 * gate -- but nothing in Linux has ever read it, and a reference
+	 * generator that is not up is a complete explanation for a receiver
+	 * that never locks. Unconditional: it costs one readl and it is valid
+	 * on every path.
+	 */
+	status19 = readl_relaxed(csi2phy->base +
+				 CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset, 19));
+	dev_info(csi2phy->dev, "csiphy: status19 %08x -- RefGen %s\n",
+		 status19, (status19 & BIT(7)) ? "Ready" : "NOT READY");
+
+	if (win_reset)
+		phy_qcom_mipi_csi2_windows_reset(csi2phy);
 
 	if (cphy_force)
 		settle_cnt = phy_qcom_mipi_csi2_cphy_settle_cnt(cfg->link_freq);
