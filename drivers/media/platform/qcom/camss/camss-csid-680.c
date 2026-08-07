@@ -13,6 +13,25 @@
 #include "camss-csid.h"
 #include "camss-csid-gen2.h"
 
+/*
+ * Debug: set CSI2_RX_CFG0_PHY_TYPE_SEL, telling the decoder its source is a
+ * C-PHY link rather than a D-PHY one.
+ *
+ * The field is defined in this file, in camss-csid-gen2.c and in
+ * camss-csid-340.c, and no CSID driver in drivers/media writes it. On this
+ * machine the sensor is C-PHY -- confirmed on the part, CCS
+ * CSI_SIGNALLING_MODE reads 0x03 while streaming -- and the CSIPHY is now
+ * programmed for it, but CSID has been decoding as D-PHY throughout.
+ *
+ * Off by default; nothing changes unless it is set. Gated on the parameter
+ * rather than on the SoC because it is an experiment, not a feature: the real
+ * fix reads the bus type, which camss currently rejects outright at probe
+ * (camss.c, vep.bus_type != V4L2_MBUS_CSI2_DPHY -> -EINVAL).
+ */
+static bool csid_cphy;
+module_param(csid_cphy, bool, 0644);
+MODULE_PARM_DESC(csid_cphy, "x1e80100 debug: tell CSID the source is C-PHY");
+
 #define CSID_TOP_IO_PATH_CFG0(csid)				(0x4 * (csid))
 #define		CSID_TOP_IO_PATH_CFG0_INTERNAL_CSID		BIT(0)
 #define		CSID_TOP_IO_PATH_CFG0_SFE_0			BIT(1)
@@ -190,7 +209,21 @@ static void __csid_configure_rx(struct csid_device *csid,
 	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
 	val |= (phy->csiphy_id + CSI2_RX_CFG0_PHY_SEL_BASE_IDX) << CSI2_RX_CFG0_PHY_NUM_SEL;
 
+	if (csid_cphy)
+		val |= 1 << CSI2_RX_CFG0_PHY_TYPE_SEL;
+
 	writel(val, csid->base + CSID_CSI2_RX_CFG0);
+
+	/*
+	 * Read back rather than reporting the computed value. The CSIPHY driver
+	 * spent four missions announcing a lane mask that a later table entry
+	 * overwrote, so nothing here claims a register holds what we wrote.
+	 */
+	dev_info(csid->camss->dev,
+		 "csid%u: rx cfg0 wrote %08x, reads %08x -- %s, %u lane(s), assign %x, phy %u\n",
+		 csid->id, val, readl(csid->base + CSID_CSI2_RX_CFG0),
+		 csid_cphy ? "C-PHY (forced)" : "D-PHY",
+		 phy->lane_cnt, phy->lane_assign, phy->csiphy_id);
 
 	val = CSI2_RX_CFG1_PACKET_ECC_CORRECTION_EN;
 	if (vc > 3)
