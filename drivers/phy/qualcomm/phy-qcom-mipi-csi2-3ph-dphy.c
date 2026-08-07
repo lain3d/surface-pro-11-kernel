@@ -473,24 +473,54 @@ static const u8 csiphy_irq_masks_x1e80100[] = {
 static const u16 csiphy_lane_status_cphy[] = { 0x358, 0x758, 0xb58 };
 static const u16 csiphy_lane_status_dphy[] = { 0x0c4, 0x4c4, 0x8c4, 0xcc4, 0xec4 };
 
+/*
+ * Debug: the C-PHY lane mask written to CTRL5 (0x1014).
+ *
+ * 0x02 is one trio, and it is what Windows programs: CSIPhyRxLane derives the
+ * mask from nNumOfDataLane, and the IMX681's chromatix resolutionData gives
+ * laneCount 1 -- cross-checked against 2 for the OV02C10 and 4 for the OV13858,
+ * both independently known. The binary's static table entry is 0x2a because
+ * that is the three-trio default it patches over at runtime.
+ *
+ * Exposed anyway. Two of three trios being disabled is a sufficient explanation
+ * for a link that never assembles, and 0x2a costs one sysfs write to rule out.
+ * 0x02 = trio 0, 0x0a = trios 0-1, 0x2a = trios 0-2.
+ */
+static u8 cphy_ctrl5 = 0x02;
+module_param(cphy_ctrl5, byte, 0644);
+MODULE_PARM_DESC(cphy_ctrl5, "x1e80100 debug: C-PHY lane mask for CTRL5 (default 0x02, one trio)");
+
 static void
 phy_qcom_mipi_csi2_report_lane_status(const struct mipi_csi2phy_device *csi2phy,
-				      const char *when)
+				      const char *when, bool rl)
 {
 	const u16 *r = cphy_force ? csiphy_lane_status_cphy
 				  : csiphy_lane_status_dphy;
 	int n = cphy_force ? ARRAY_SIZE(csiphy_lane_status_cphy)
 			   : ARRAY_SIZE(csiphy_lane_status_dphy);
 	u32 v[ARRAY_SIZE(csiphy_lane_status_dphy)] = {};
+	u32 ctrl5;
 	int i;
 
 	for (i = 0; i < n; i++)
 		v[i] = readl_relaxed(csi2phy->base + r[i]);
 
+	/*
+	 * Read CTRL5 back rather than reporting what we meant to write. The
+	 * D-PHY path announces 0x81 from the DT and the table then writes 0xD5
+	 * over it, so the computed value and the live register disagree.
+	 */
+	ctrl5 = readl_relaxed(csi2phy->base + 0x1014);
+
 	/* zero on every lane is what Windows waits for */
-	dev_info(csi2phy->dev,
-		 "csiphy lane status (%s): %08x %08x %08x %08x %08x [%d lanes]\n",
-		 when, v[0], v[1], v[2], v[3], v[4], n);
+	if (rl)
+		dev_info_ratelimited(csi2phy->dev,
+			 "csiphy lane status (%s): %08x %08x %08x %08x %08x [%d lanes, ctrl5 %02x]\n",
+			 when, v[0], v[1], v[2], v[3], v[4], n, ctrl5);
+	else
+		dev_info(csi2phy->dev,
+			 "csiphy lane status (%s): %08x %08x %08x %08x %08x [%d lanes, ctrl5 %02x]\n",
+			 when, v[0], v[1], v[2], v[3], v[4], n, ctrl5);
 }
 
 static irqreturn_t phy_qcom_mipi_csi2_isr(int irq, void *dev)
@@ -524,12 +554,21 @@ static irqreturn_t phy_qcom_mipi_csi2_isr(int irq, void *dev)
 	 * name: STATUS1, 3, 6 and 8 are its Csi2CommonStatus1/3/6/8, so those
 	 * are the four positions worth reading first.
 	 */
-	if (any)
+	if (any) {
 		dev_warn_ratelimited(csi2phy->dev,
 				     "csiphy irq: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
 				     status[0], status[1], status[2], status[3],
 				     status[4], status[5], status[6], status[7],
 				     status[8], status[9], status[10]);
+
+		/*
+		 * The other half of the lane-status reading, which the previous
+		 * build defined and never called. Here is where it means
+		 * something: the sensor is transmitting, so this is the state
+		 * Windows' CSIPhyWaitforRx would be polling.
+		 */
+		phy_qcom_mipi_csi2_report_lane_status(csi2phy, "irq", true);
+	}
 
 	/*
 	 * Runaway guard. The ack sequence below looks correct, but this line
@@ -681,6 +720,9 @@ phy_qcom_mipi_csi2_gen2_config_lanes(struct mipi_csi2phy_device *csi2phy,
 			val = r->reg_data;
 			break;
 		}
+
+		if (cphy_force && r->reg_addr == 0x1014)
+			val = cphy_ctrl5;
 		writel_relaxed(val, csi2phy->base + r->reg_addr);
 		if (r->delay_us)
 			fsleep(r->delay_us);
@@ -712,10 +754,12 @@ static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 
 	if (cphy_force) {
 		/*
-		 * One C-PHY trio. Windows writes 0x02 and, unlike D-PHY's 0x81,
-		 * sets no clock-lane bit -- C-PHY embeds the clock.
+		 * One C-PHY trio by default. Unlike D-PHY's 0x81 there is no
+		 * clock-lane bit -- C-PHY embeds the clock. The table writes
+		 * CTRL5 again a few lines below, with the same value; both go
+		 * through cphy_ctrl5 so a sysfs write moves them together.
 		 */
-		val = 0x02;
+		val = cphy_ctrl5;
 	} else {
 		val = CSIPHY_3PH_CMN_CSI_COMMON_CTRL5_CLK_ENABLE;
 		for (i = 0; i < cfg->num_data_lanes; i++)
@@ -786,7 +830,7 @@ static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 	 * not yet streaming, as the baseline for what the ISR reports later.
 	 */
 	if (cphy_force || irq_unmask)
-		phy_qcom_mipi_csi2_report_lane_status(csi2phy, "programmed");
+		phy_qcom_mipi_csi2_report_lane_status(csi2phy, "programmed", false);
 
 	return 0;
 }
