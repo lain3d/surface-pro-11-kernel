@@ -30,8 +30,11 @@
  *  - Bayer order. The blob never writes 0x0101 (image_orientation), so the
  *    CFA phase is unknown. SRGGB10 is a guess and has a one-in-four chance
  *    of being right; a captured frame with wrong colour will say so at once.
- *  - Streaming is started and stopped through 0x0100. Standard for SMIA,
- *    but the blob never writes it -- the Windows stack does that itself.
+ *  - Streaming is started and stopped through 0x0100. The blob DOES carry
+ *    this, as its own single-entry sequence, along with 0x0104 = 1 / 0
+ *    around it -- a grouped parameter hold, which this driver does not do.
+ *    An earlier note here claimed the blob never writes 0x0100; that was an
+ *    artifact of the extractor silently dropping every single-entry array.
  *  - Exposure at 0x0202 and analogue gain at 0x0204 are the SMIA-standard
  *    locations. The blob writes 0x0204 (to zero) but never 0x0202.
  *  - Analogue gain range 0..1023. A typical IMX value, not a measured one.
@@ -76,8 +79,8 @@
 #define IMX681_MODE_STANDBY		0x00
 #define IMX681_MODE_STREAMING		0x01
 
-#define IMX681_REG_FRAME_LENGTH		0x0340
-#define IMX681_REG_EXPOSURE		0x0202
+#define IMX681_REG_FRAME_LENGTH		0x033e
+#define IMX681_REG_EXPOSURE		0x022a
 #define IMX681_EXPOSURE_MIN		4
 #define IMX681_EXPOSURE_STEP		1
 #define IMX681_EXPOSURE_DEFAULT		0x0640
@@ -105,6 +108,16 @@ static const char * const imx681_supply_names[] = {
 	"avdd",		/* Analog power */
 };
 
+/*
+ * Whether to write mode 0's 0xE801-0xE899 block. Default true, which is the
+ * behaviour every measurement to date was taken under -- set to 0 to test
+ * whether that block is what makes mode 0 emit a subsampled RAW8 stream.
+ */
+static bool mode0_e8xx = true;
+module_param(mode0_e8xx, bool, 0644);
+MODULE_PARM_DESC(mode0_e8xx,
+		 "x1e80100 debug: write mode 0's 0xE801-0xE899 block (default 1)");
+
 struct imx681_reg {
 	u16 address;
 	u8 val;
@@ -121,6 +134,8 @@ struct imx681_mode {
 	u32 hts;
 	u32 link_freq_index;
 	struct imx681_reg_list reg_list;
+	/* Optional second sequence, written after reg_list. Mode 0 only. */
+	struct imx681_reg_list extra;
 };
 
 static const struct imx681_reg imx681_init_regs[] = {
@@ -557,6 +572,20 @@ static const struct imx681_reg imx681_mode_4032x3024[] = {
 	{0x0368, 0x00},
 	{0x036a, 0x08},
 	{0x036b, 0x70},
+};
+
+/*
+ * The 0xE801-0xE899 tail of the recovered 4032x3024 table: 136 registers
+ * that no other mode has. Mode 1 (3520x2640) is the SAME 67 addresses in the
+ * same order with nothing appended, and mode 1 captures a full RAW10 frame
+ * while mode 0 puts a 504x382 RAW8 stream on the wire that no register in the
+ * shared 67 asks for. Neither table sets RAW8, a scaler or binning, so this
+ * block is the only thing left that can account for the difference.
+ *
+ * Kept as data rather than deleted -- it was recovered from the vendor blob
+ * and nothing else records it. Written unless mode0_e8xx=0.
+ */
+static const struct imx681_reg imx681_mode_4032x3024_e8xx[] = {
 	{0xe801, 0x06},
 	{0xe802, 0x01},
 	{0xe803, 0x32},
@@ -1051,6 +1080,22 @@ static const s64 link_freq_menu_items[] = {
 };
 
 static const struct imx681_mode supported_modes[] = {
+	/*
+	 * 3520x2640 first, and deliberately: this is the only mode that has
+	 * ever delivered a frame. supported_modes[0] is both the probe-time
+	 * default and the first entry userspace enumerates, so putting the
+	 * working mode here makes a plain capture work with no arguments.
+	 */
+	{
+		.width = 3520,
+		.height = 2640,
+		.hts = 6752,
+		.link_freq_index = 1,
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(imx681_mode_3520x2640),
+			.regs = imx681_mode_3520x2640,
+		},
+	},
 	{
 		.width = 4032,
 		.height = 3024,
@@ -1059,6 +1104,10 @@ static const struct imx681_mode supported_modes[] = {
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_4032x3024),
 			.regs = imx681_mode_4032x3024,
+		},
+		.extra = {
+			.num_of_regs = ARRAY_SIZE(imx681_mode_4032x3024_e8xx),
+			.regs = imx681_mode_4032x3024_e8xx,
 		},
 	},
 	{
@@ -1069,16 +1118,6 @@ static const struct imx681_mode supported_modes[] = {
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2640),
 			.regs = imx681_mode_3840x2640,
-		},
-	},
-	{
-		.width = 3520,
-		.height = 2640,
-		.hts = 6752,
-		.link_freq_index = 1,
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(imx681_mode_3520x2640),
-			.regs = imx681_mode_3520x2640,
 		},
 	},
 	{
@@ -1231,11 +1270,13 @@ static void imx681_debug_dump_state(struct imx681 *imx681, const char *when)
 		{ CCI_REG8(0x0114), "csi_lane_mode    " },
 		{ CCI_REG16(0x0112), "csi_data_format  " },
 		{ CCI_REG16(0x0136), "extclk_freq_mhz  " },
-		{ CCI_REG16(0x0340), "frame_length_line" },
+		{ CCI_REG16(0x033e), "frame_length  LIVE" },
+		{ CCI_REG16(0x0340), "frame_length  dead" },
 		{ CCI_REG16(0x0342), "line_length_pck  " },
 		{ CCI_REG16(0x034c), "x_output_size    " },
 		{ CCI_REG16(0x034e), "y_output_size    " },
-		{ CCI_REG16(0x0202), "coarse_integ_time" },
+		{ CCI_REG16(0x022a), "exposure      LIVE" },
+		{ CCI_REG16(0x0202), "exposure    mirror" },
 		{ CCI_REG16(0x0204), "analogue_gain    " },
 		{ CCI_REG8(0x0301), "vt_pix_clk_div   " },
 		{ CCI_REG8(0x0303), "vt_sys_clk_div   " },
@@ -1289,6 +1330,24 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 		goto err;
 
 	/*
+	 * Unconditional, because a silent skip here is indistinguishable from
+	 * the block having no effect -- which is the exact question being asked.
+	 */
+	if (imx681->cur_mode->extra.num_of_regs) {
+		dev_info(imx681->dev, "%ux%u: extra block of %u regs -- %s\n",
+			 imx681->cur_mode->width, imx681->cur_mode->height,
+			 imx681->cur_mode->extra.num_of_regs,
+			 mode0_e8xx ? "writing" : "SKIPPED (mode0_e8xx=0)");
+		if (mode0_e8xx) {
+			ret = imx681_write_regs(imx681,
+						imx681->cur_mode->extra.regs,
+						imx681->cur_mode->extra.num_of_regs);
+			if (ret)
+				goto err;
+		}
+	}
+
+	/*
 	 * No recovered table sets frame_length_lines, so ask the sensor what
 	 * the mode left it at rather than assuming a value.
 	 */
@@ -1299,6 +1358,16 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 		__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
 					 IMX681_VTS_MAX - imx681->cur_mode->height,
 					 1, val - imx681->cur_mode->height);
+
+		/*
+		 * modify_range moves the DEFAULT but leaves a current value that is
+		 * still inside the new range. Without this the stale vblank of 128
+		 * survives, and __v4l2_ctrl_handler_setup() below writes
+		 * height + 128 back over the frame length the mode table just set.
+		 * Measured: table 3554 -> driver left 3152.
+		 */
+		__v4l2_ctrl_s_ctrl(imx681->vblank,
+					   val - imx681->cur_mode->height);
 	} else {
 		dev_warn(imx681->dev,
 			 "frame_length_lines unusable: ret=%d val=%llu height=%u -- the sensor will probably not stream\n",

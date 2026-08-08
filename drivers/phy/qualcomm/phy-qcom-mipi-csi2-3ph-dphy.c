@@ -495,9 +495,10 @@ mipi_csi2phy_lane_regs lane_regs_x1e80100_cphy[] = {
  * Not static: phy_qcom_mipi_csi2_set_clock_rates() in the core file reads it
  * to pick the 400 MHz timer rate the recovered settle counts assume.
  */
-bool cphy_force;
+bool cphy_force = true;
 module_param(cphy_force, bool, 0644);
-MODULE_PARM_DESC(cphy_force, "x1e80100 debug: force C-PHY lane programming");
+MODULE_PARM_DESC(cphy_force,
+		 "x1e80100 debug: force C-PHY lane programming (default 1)");
 
 /*
  * C-PHY settle count. Windows does not compute this -- on the C-PHY side it is
@@ -560,6 +561,19 @@ module_param(cphy_datarate_kbps, uint, 0644);
 MODULE_PARM_DESC(cphy_datarate_kbps,
 		 "x1e80100 debug: C-PHY data rate in kbps (0 = derive from link_freq)");
 
+/*
+ * The *2 is not a fudge. imx681.c's link_freq_menu_items[] hold HALF the
+ * C-PHY symbol rate, because they were written to the D-PHY DDR convention:
+ * 998.4 MHz for mode 0's 1996.8 MSps and 1200 MHz for mode 1's 2400 MSps.
+ * Doubling recovers the symbol rate, and 16/7 turns symbols into bits.
+ *
+ * So the menu items ARE already per-mode and already correct in effect --
+ * mode 1 derives 5,485,714 kbps against Windows' measured 5,485,700, which
+ * is 2.6 ppm and lands in the same table and the same settle bucket.
+ *
+ * If anyone changes imx681.c to report the true symbol rate, this *2 has to
+ * go in the same commit or the rate doubles. Do not fix one side alone.
+ */
 static u64 phy_qcom_mipi_csi2_cphy_datarate(s64 link_freq)
 {
 	if (cphy_datarate_kbps)

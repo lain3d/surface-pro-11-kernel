@@ -28,9 +28,10 @@
  * fix reads the bus type, which camss currently rejects outright at probe
  * (camss.c, vep.bus_type != V4L2_MBUS_CSI2_DPHY -> -EINVAL).
  */
-static bool csid_cphy;
+static bool csid_cphy = true;
 module_param(csid_cphy, bool, 0644);
-MODULE_PARM_DESC(csid_cphy, "x1e80100 debug: tell CSID the source is C-PHY");
+MODULE_PARM_DESC(csid_cphy,
+		 "x1e80100 debug: tell CSID the source is C-PHY (default 1)");
 
 #define CSID_TOP_IO_PATH_CFG0(csid)				(0x4 * (csid))
 #define		CSID_TOP_IO_PATH_CFG0_INTERNAL_CSID		BIT(0)
