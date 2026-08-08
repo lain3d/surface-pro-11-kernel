@@ -57,6 +57,281 @@
 #define CSIPHY_SKEW_CAL					7
 
 /* 4nm 2PH v 2.1.2 2p5Gbps 4 lane DPHY mode */
+/* 4nm C-PHY, x1e80100, 2.0 Gbps <= dataRate < 2.5 Gbps. */
+static const struct
+mipi_csi2phy_lane_regs lane_regs_x1e80100_cphy_2g5[] = {
+	{0x1084, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x108c, 0x00, 1, CSIPHY_DEFAULT_PARAMS},
+	{0x02f0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1014, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x101c, 0x7a, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1018, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x101c, 0x7a, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0268, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0278, 0x2e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0288, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x026c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x028c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0294, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0270, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0274, 0x03, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0668, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0678, 0x2e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0688, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x066c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x068c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0694, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0670, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0674, 0x03, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a68, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a78, 0x2e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a88, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a6c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a8c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a94, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a70, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a74, 0x03, 10000, CSIPHY_DEFAULT_PARAMS},
+	{0x0294, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02fc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f0, 0xef, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0694, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06fc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f0, 0xef, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a94, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0afc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af0, 0xef, 10000, CSIPHY_DEFAULT_PARAMS},
+	{0x0208, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x020c, 0x2a, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0210, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0214, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0200, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0204, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0608, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x060c, 0x2a, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0610, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0614, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0600, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0604, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a08, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a0c, 0x2a, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0a10, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a14, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a00, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a04, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02e4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02e8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02ec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0218, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x021c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0220, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0224, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0228, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x022c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06e4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06e8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06ec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0618, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x061c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0620, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0624, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0628, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x062c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0ae4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0ae8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0aec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a18, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a1c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a20, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a24, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a28, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a2c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0264, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0244, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0310, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02bc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0254, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0240, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0260, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0284, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0290, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0664, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0644, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0710, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06bc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0654, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0640, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0660, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0684, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0690, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a64, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a44, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0b10, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0abc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a54, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a40, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a60, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a84, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a90, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x102c, 0xff, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1030, 0xfe, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1034, 0xe2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1038, 0xdf, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x103c, 0x5f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1040, 0xfc, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1044, 0xfb, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1048, 0x8b, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x104c, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1050, 0xbf, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1054, 0xff, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1000, 0x0e, 0, CSIPHY_DEFAULT_PARAMS},
+};
+
+/* 4nm C-PHY, x1e80100, dataRate >= 2.5 Gbps -- the one IMX681 needs on
+ * every mode. Its irq mask block differs from the other two tables
+ * (ff fe e2 df 5f fc fb 8b 7f bf ff), which is why the masks are
+ * validated by shape rather than by value. */
+static const struct
+mipi_csi2phy_lane_regs lane_regs_x1e80100_cphy_hi[] = {
+	{0x1084, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x108c, 0x00, 1, CSIPHY_DEFAULT_PARAMS},
+	{0x02f0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af0, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1014, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x101c, 0x7a, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1018, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x101c, 0x7a, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0268, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0294, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0278, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0288, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x026c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x028c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0270, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0274, 0x03, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0668, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0694, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0678, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0688, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x066c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x068c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0670, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0674, 0x03, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a68, 0xf1, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a94, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a78, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a88, 0x20, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a6c, 0x3d, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a8c, 0x30, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a70, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a74, 0x03, 10000, CSIPHY_DEFAULT_PARAMS},
+	{0x0294, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02fc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02f0, 0xef, 1000, CSIPHY_DEFAULT_PARAMS},
+	{0x0694, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06fc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06f0, 0xef, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a94, 0x09, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af8, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0afc, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0af0, 0xef, 10000, CSIPHY_DEFAULT_PARAMS},
+	{0x020c, 0x22, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0208, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0210, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0214, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0204, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02e4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02e8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02ec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0218, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x021c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0220, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0224, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0228, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x022c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0264, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0244, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0310, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x02bc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0254, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0240, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0260, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0284, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0290, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x060c, 0x22, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0608, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0610, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0614, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0604, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06e4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06e8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06ec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0618, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x061c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0620, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0624, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0628, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x062c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0664, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0644, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0710, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x06bc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0654, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0640, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0660, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0684, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0690, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a0c, 0x22, 0, CSIPHY_SETTLE_CNT_LOWER_BYTE},
+	{0x0a08, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a10, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a14, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a00, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a04, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0ae4, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0ae8, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0aec, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a18, 0x3e, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a1c, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a20, 0x41, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a24, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a28, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a2c, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a64, 0x01, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a44, 0xb2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0b10, 0x35, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0abc, 0xd0, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a54, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a40, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a60, 0xa8, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a84, 0x00, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x0a90, 0x02, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x102c, 0xff, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1030, 0xfe, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1034, 0xe2, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1038, 0xdf, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x103c, 0x5f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1040, 0xfc, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1044, 0xfb, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1048, 0x8b, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x104c, 0x7f, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1050, 0xbf, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1054, 0xff, 0, CSIPHY_DEFAULT_PARAMS},
+	{0x1000, 0x0e, 0, CSIPHY_DEFAULT_PARAMS},
+};
+
 /* 4nm C-PHY, x1e80100, dataRate < 2.0 Gbps. Recovered from
  * qccammipicsi8380.sys; see data/csiphy-cphy-x1e80100.txt in arm64-egpu.
  * Per-lane blocks repeat at stride 0x400; C-PHY drives the odd lanes only,
@@ -267,15 +542,65 @@ static const struct mipi_csi2phy_cphy_settle cphy_settle_x1e80100[] = {
  * link_freq is the D-PHY DDR convention the DT and camss use, so the bit rate
  * is 2 * link_freq. Windows converts to symbols at 2.28 bits per C-PHY symbol.
  */
-static u8 phy_qcom_mipi_csi2_cphy_settle_cnt(s64 link_freq)
-{
-	u64 msps;
-	int i;
+/*
+ * Windows' dataRate, in bits per second. See the settle table's own comment:
+ * the lookup is keyed on the bit rate, not the symbol rate.
+ *
+ * link_freq here is imx681.c's link_freq_menu_items entry, which is half the
+ * C-PHY symbol rate -- the driver applied the D-PHY DDR convention to a C-PHY
+ * sensor. Doubling recovers op_sys_clk, which is the symbol rate, and C-PHY
+ * carries 16 bits per 7 symbols.
+ *
+ * mode 0 (4032x3024): op_sys_clk 1996.8 MHz -> 4.564 Gbps.
+ * modes 1-5:          op_sys_clk 2400.0 MHz -> 5.4857 Gbps, which is exactly
+ *                     what Windows recorded for a working link.
+ */
+static u32 cphy_datarate_kbps;
+module_param(cphy_datarate_kbps, uint, 0644);
+MODULE_PARM_DESC(cphy_datarate_kbps,
+		 "x1e80100 debug: C-PHY data rate in kbps (0 = derive from link_freq)");
 
+static u64 phy_qcom_mipi_csi2_cphy_datarate(s64 link_freq)
+{
+	if (cphy_datarate_kbps)
+		return (u64)cphy_datarate_kbps * 1000;
 	if (link_freq <= 0)
 		return 0;
 
-	msps = div_u64((u64)link_freq * 2 * 100, 228);
+	return div_u64((u64)link_freq * 2 * 16, 7);
+}
+
+/*
+ * Windows picks one of three tables by data rate, splitting at 2.0 and 2.5
+ * Gbps. Every C-PHY run before this used the first unconditionally.
+ */
+static const struct mipi_csi2phy_lane_regs *
+phy_qcom_mipi_csi2_cphy_table(s64 link_freq, int *n)
+{
+	u64 bps = phy_qcom_mipi_csi2_cphy_datarate(link_freq);
+
+	if (bps < 2000000001ULL) {
+		*n = ARRAY_SIZE(lane_regs_x1e80100_cphy);
+		return lane_regs_x1e80100_cphy;
+	}
+	if (bps < 2500000001ULL) {
+		*n = ARRAY_SIZE(lane_regs_x1e80100_cphy_2g5);
+		return lane_regs_x1e80100_cphy_2g5;
+	}
+	*n = ARRAY_SIZE(lane_regs_x1e80100_cphy_hi);
+	return lane_regs_x1e80100_cphy_hi;
+}
+
+static u8 phy_qcom_mipi_csi2_cphy_settle_cnt(s64 link_freq)
+{
+	u64 bps = phy_qcom_mipi_csi2_cphy_datarate(link_freq);
+	u64 msps;
+	int i;
+
+	if (!bps)
+		return 0;
+
+	msps = div_u64(bps * 100, 228);
 	msps = div_u64(msps, 1000000);
 
 	for (i = 0; i < ARRAY_SIZE(cphy_settle_x1e80100); i++)
@@ -702,8 +1027,13 @@ phy_qcom_mipi_csi2_gen2_config_lanes(struct mipi_csi2phy_device *csi2phy,
 	u32 val;
 
 	if (cphy_force) {
-		r = lane_regs_x1e80100_cphy;
-		array_size = ARRAY_SIZE(lane_regs_x1e80100_cphy);
+		r = phy_qcom_mipi_csi2_cphy_table(csi2phy->stream_cfg.link_freq,
+						  &array_size);
+		dev_info(csi2phy->dev, "csiphy: C-PHY table %s, %d entries\n",
+			 r == lane_regs_x1e80100_cphy     ? "< 2.0 Gbps" :
+			 r == lane_regs_x1e80100_cphy_2g5 ? "< 2.5 Gbps" :
+							   ">= 2.5 Gbps",
+			 array_size);
 	}
 
 	for (i = 0; i < array_size; i++, r++) {
@@ -846,9 +1176,11 @@ static int phy_qcom_mipi_csi2_lanes_enable(struct mipi_csi2phy_device *csi2phy,
 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
 
 	dev_info(csi2phy->dev,
-		 "csiphy: %s lanes, settle_cnt 0x%02x, ctrl5 0x%02x, link_freq %lld, timer_clk %u\n",
+		 "csiphy: %s lanes, settle_cnt 0x%02x, ctrl5 0x%02x, link_freq %lld, datarate %llu kbps, timer_clk %u\n",
 		 cphy_force ? "C-PHY (forced)" : "D-PHY",
-		 settle_cnt, ctrl5_val, cfg->link_freq, csi2phy->timer_clk_rate);
+		 settle_cnt, ctrl5_val, cfg->link_freq,
+		 div_u64(phy_qcom_mipi_csi2_cphy_datarate(cfg->link_freq), 1000),
+		 csi2phy->timer_clk_rate);
 
 	if (phy_qcom_mipi_csi2_is_gen2(csi2phy))
 		phy_qcom_mipi_csi2_gen2_config_lanes(csi2phy, settle_cnt);
