@@ -1079,6 +1079,53 @@ static const s64 link_freq_menu_items[] = {
 	1200000000ULL,
 };
 
+/*
+ * x1e80100 debug: mode 0 is a different *class* of mode, not a different size.
+ *
+ * Comparing every vendor register across all six recovered mode tables, the
+ * five that behave like ordinary full-frame modes are identical to each other
+ * on these four addresses, and 4032x3024 is the sole outlier on all four:
+ *
+ *      addr      4032x3024   the other five
+ *      0x2000      0x02          0x01
+ *      0x6a83      0x00          0x03
+ *      0x7e9b      0x07          0x02
+ *      0xdc3c      0x00          0x01
+ *
+ * Every other difference between the tables -- crop, PLL, output size --
+ * varies per mode, as it should. These four split one-against-five, which is
+ * the signature of a mode-class selector rather than a per-mode parameter.
+ *
+ * Mode 0 puts a 504x382 RAW8 stream on the wire instead of 4032x3024 RAW10,
+ * and the appended 0xE801-0xE899 block turns out to be three 0x34-byte stream
+ * descriptors whose first entry is literally 504 x 378 (0x01F8 x 0x017A).
+ * Skipping that block does not change the geometry, because nothing else in
+ * this driver ever writes 0xE8xx and the values match the power-on defaults --
+ * so the block describes the mode rather than causing it. These four
+ * registers are what is left that could select it.
+ *
+ * A bitmask so all sixteen combinations bisect without another build:
+ *
+ *      bit 0   0x2000 = 0x01
+ *      bit 1   0x6a83 = 0x03
+ *      bit 2   0x7e9b = 0x02
+ *      bit 3   0xdc3c = 0x01
+ *
+ * 0 (the default) writes nothing and leaves mode 0's recovered table exactly
+ * as it was. 15 makes mode 0 agree with the other five on all four.
+ */
+static const struct imx681_reg imx681_mode0_class_regs[] = {
+	{0x2000, 0x01},
+	{0x6a83, 0x03},
+	{0x7e9b, 0x02},
+	{0xdc3c, 0x01},
+};
+
+static unsigned int mode0_class;
+module_param(mode0_class, uint, 0644);
+MODULE_PARM_DESC(mode0_class,
+		 "x1e80100 debug: bitmask, rewrite mode 0's class registers to the other five modes' values (1=0x2000 2=0x6a83 4=0x7e9b 8=0xdc3c, 15=all, default 0=off)");
+
 static const struct imx681_mode supported_modes[] = {
 	/*
 	 * 3520x2640 first, and deliberately: this is the only mode that has
@@ -1342,6 +1389,33 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 			ret = imx681_write_regs(imx681,
 						imx681->cur_mode->extra.regs,
 						imx681->cur_mode->extra.num_of_regs);
+			if (ret)
+				goto err;
+		}
+	}
+
+
+	/*
+	 * Gated on the extra block because mode 0 is the only mode that has
+	 * one -- that keeps a stray mode0_class from leaking into a mode that
+	 * already works. Logged per register, and only when it actually
+	 * writes, so dmesg states exactly which of the four were applied.
+	 */
+	if (imx681->cur_mode->extra.num_of_regs && mode0_class) {
+		unsigned int i;
+
+		for (i = 0; i < ARRAY_SIZE(imx681_mode0_class_regs); i++) {
+			if (!(mode0_class & (1u << i)))
+				continue;
+
+			dev_info(imx681->dev,
+				 "mode0_class=0x%x: writing 0x%04x = 0x%02x\n",
+				 mode0_class,
+				 imx681_mode0_class_regs[i].address,
+				 imx681_mode0_class_regs[i].val);
+
+			ret = imx681_write_regs(imx681,
+						&imx681_mode0_class_regs[i], 1);
 			if (ret)
 				goto err;
 		}
