@@ -102,6 +102,34 @@
  */
 #define IMX681_VTS_FALLBACK(h)		((h) + 128)
 
+/*
+ * Pixel array geometry, DERIVED FROM THE RECOVERED MODE TABLES, not from a
+ * datasheet -- there is no public one for this part.
+ *
+ * Every mode's analogue crop lies inside x [8, 4039] and y [64, 3087], and
+ * 4032x3024 uses exactly that rectangle, which is the sensor's nominal 12 MP.
+ * The 0xE801 stream descriptor reads 16 rows further, to y = 3103, so the
+ * array is at least 3104 rows tall.
+ *
+ * NATIVE is therefore a LOWER BOUND on the true array size, not the array
+ * size. imx681_start_streaming() logs the CCS array-limit registers so these
+ * can be replaced with measured values; until then libcamera is given a
+ * truthful active area and a conservative native size, which beats the
+ * (0,0)/4032x3024 it defaults to when the selection ioctl is missing.
+ */
+#define IMX681_NATIVE_WIDTH		4040U
+#define IMX681_NATIVE_HEIGHT		3104U
+#define IMX681_ACTIVE_LEFT		8U
+#define IMX681_ACTIVE_TOP		64U
+#define IMX681_ACTIVE_WIDTH		4032U
+#define IMX681_ACTIVE_HEIGHT		3024U
+
+/* CCS/SMIA++ array-limit registers, read once per stream start and logged. */
+#define IMX681_REG_X_ADDR_MIN		0x0168
+#define IMX681_REG_Y_ADDR_MIN		0x016a
+#define IMX681_REG_X_ADDR_MAX		0x016c
+#define IMX681_REG_Y_ADDR_MAX		0x016e
+
 static const char * const imx681_supply_names[] = {
 	"dovdd",	/* Digital I/O power */
 	"avdd",		/* Analog power */
@@ -135,6 +163,8 @@ struct imx681_mode {
 	struct imx681_reg_list reg_list;
 	/* Optional second sequence, written after reg_list. Mode 0 only. */
 	struct imx681_reg_list extra;
+	/* Analogue crop, transcribed from 0x0344..0x034b of reg_list. */
+	struct v4l2_rect crop;
 };
 
 static const struct imx681_reg imx681_init_regs[] = {
@@ -528,7 +558,7 @@ static const struct imx681_reg imx681_mode_4032x3024[] = {
 	{0x0180, 0x00},
 	{0x038c, 0x13},
 	{0x038d, 0x33},
-	{0x2000, 0x02},
+	{0x2000, 0x01},	/* was 0x02 -- see the note above supported_modes[] */
 	{0x0408, 0x00},
 	{0x0409, 0x00},
 	{0x040a, 0x00},
@@ -1149,24 +1179,43 @@ static const s64 link_freq_menu_items[] = {
  * commit or do not add the control.
  */
 
-static const struct imx681_reg imx681_mode0_class_regs[] = {
-	{0x2000, 0x01},
-	{0x6a83, 0x03},
-	{0x7e9b, 0x02},
-	{0xdc3c, 0x01},
-};
+/*
+ * 0x2000 IS THE MODE-CLASS SELECTOR, and 4032x3024 shipped with the wrong one.
+ *
+ * The recovered 4032x3024 table wrote 0x2000 = 0x02; every other mode writes
+ * 0x01. With 0x02 the sensor put a 504x382 RAW8 stream on the wire -- an
+ * eighth-scale thumbnail -- and no frame ever completed, which also meant
+ * every camera application on the machine got a black window, because
+ * 4032x3024 is the capture node's default format.
+ *
+ * Measured: writing 0x2000 = 0x01 and nothing else yields 15,240,960 bytes,
+ * exactly 4032 x 3024 x 10/8, reproduced three times, with a zero-byte
+ * control run first so the result is attributable to this register alone.
+ * The three other registers 4032x3024 disagreed on (0x6a83, 0x7e9b, 0xdc3c)
+ * were each tested individually and do nothing; they are deliberately left
+ * at the recovered values.
+ *
+ * Set reg_patch="0x2000=0x02" to reproduce the thumbnail stream for study.
+ */
 
-static unsigned int mode0_class;
-module_param(mode0_class, uint, 0644);
-MODULE_PARM_DESC(mode0_class,
-		 "x1e80100 debug: bitmask, rewrite mode 0's class registers to the other five modes' values (1=0x2000 2=0x6a83 4=0x7e9b 8=0xdc3c, 15=all, default 0=off)");
+/*
+ * Generic debug hook: comma-separated ADDR=VAL 8-bit writes applied after the
+ * mode table and any extra block, immediately before streaming starts.
+ *
+ * Every register hypothesis on this platform has so far cost a cross-machine
+ * rebuild-and-install cycle. This exists so the next one costs a sysfs write.
+ * Values are parsed with kstrtou32(), so 0x-prefixed, decimal and 0-prefixed
+ * octal all work.
+ */
+static char *reg_patch;
+module_param(reg_patch, charp, 0644);
+MODULE_PARM_DESC(reg_patch,
+		 "debug: ADDR=VAL[,ADDR=VAL...] 8-bit sensor writes applied after the mode table, e.g. \"0x0368=0x00\"");
 
 static const struct imx681_mode supported_modes[] = {
 	/*
-	 * 3520x2640 first, and deliberately: this is the only mode that has
-	 * ever delivered a frame. supported_modes[0] is both the probe-time
-	 * default and the first entry userspace enumerates, so putting the
-	 * working mode here makes a plain capture work with no arguments.
+	 * 3520x2640 first, and deliberately: supported_modes[0] is both the
+	 * probe-time default and the first entry userspace enumerates.
 	 */
 	{
 		.width = 3520,
@@ -1177,6 +1226,7 @@ static const struct imx681_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3520x2640),
 			.regs = imx681_mode_3520x2640,
 		},
+		.crop = { .left = 264, .top = 256, .width = 3520, .height = 2640 },
 	},
 	{
 		.width = 4032,
@@ -1191,6 +1241,7 @@ static const struct imx681_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_4032x3024_e8xx),
 			.regs = imx681_mode_4032x3024_e8xx,
 		},
+		.crop = { .left = 8, .top = 64, .width = 4032, .height = 3024 },
 	},
 	{
 		.width = 3840,
@@ -1201,6 +1252,7 @@ static const struct imx681_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2640),
 			.regs = imx681_mode_3840x2640,
 		},
+		.crop = { .left = 104, .top = 256, .width = 3840, .height = 2640 },
 	},
 	{
 		.width = 3660,
@@ -1211,6 +1263,51 @@ static const struct imx681_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3660x2440),
 			.regs = imx681_mode_3660x2440,
 		},
+		.crop = { .left = 192, .top = 356, .width = 3660, .height = 2440 },
+	},
+	/*
+	 * THE TWO 3840x2160 ENTRIES ARE ORDERED DELIBERATELY.
+	 *
+	 * They are the same size and differ in four registers. Three are frame
+	 * timing -- 6752 x 3554 against 5408 x 2218, a ratio of 2.0006 -- so
+	 * _1 is simply the double-rate variant. The fourth is 0x0368, which _1
+	 * sets to 0x01 and which no other mode in this driver sets to anything
+	 * but 0x00.
+	 *
+	 * _1 produces zero bytes, reproducibly, 4 runs of 4. That matters far
+	 * more than a duplicate-looking entry suggests: libcamera's simple
+	 * pipeline handler picks the smallest mode that covers the request, so
+	 * every ordinary resolution -- 1920x1080, 1280x720, 640x480 -- lands on
+	 * 3840x2160, and userspace selects a mode by size, taking the first
+	 * match. With _1 first, every camera application gets a black window.
+	 *
+	 * _2 works, so it goes first.
+	 *
+	 * That makes _1 UNREACHABLE from userspace: set_fmt resolves a mode with
+	 * v4l2_find_nearest_size(), which returns the first entry with the
+	 * smallest error, and the two are the same size. _1 is kept only so the
+	 * table and this note are not lost.
+	 *
+	 * To test 0x0368 without a rebuild, apply it to the mode that WORKS
+	 * rather than trying to reach the one that does not:
+	 *
+	 *     reg_patch="0x0368=0x01"   on 3840x2160  -> if it stops capturing,
+	 *                                                0x0368 is the fault
+	 *
+	 * If that is confirmed, the fix is to clear 0x0368 in _1, which then
+	 * differs from _2 only in frame timing and becomes a genuine
+	 * double-rate mode worth enumerating.
+	 */
+	{
+		.width = 3840,
+		.height = 2160,
+		.hts = 6752,
+		.link_freq_index = 1,
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_2),
+			.regs = imx681_mode_3840x2160_2,
+		},
+		.crop = { .left = 104, .top = 496, .width = 3840, .height = 2160 },
 	},
 	{
 		.width = 3840,
@@ -1221,16 +1318,7 @@ static const struct imx681_mode supported_modes[] = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_1),
 			.regs = imx681_mode_3840x2160_1,
 		},
-	},
-	{
-		.width = 3840,
-		.height = 2160,
-		.hts = 6752,
-		.link_freq_index = 1,
-		.reg_list = {
-			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_2),
-			.regs = imx681_mode_3840x2160_2,
-		},
+		.crop = { .left = 104, .top = 496, .width = 3840, .height = 2160 },
 	},
 };
 
@@ -1384,6 +1472,99 @@ static void imx681_debug_dump_state(struct imx681 *imx681, const char *when)
 	}
 }
 
+/*
+ * Apply reg_patch. Parsing is strict and a bad entry fails the stream rather
+ * than being skipped: a silently ignored patch is indistinguishable from a
+ * patch that had no effect, which is the exact question this exists to answer.
+ */
+static int imx681_apply_reg_patch(struct imx681 *imx681)
+{
+	char *buf, *cur, *tok;
+	int ret = 0;
+
+	if (!reg_patch || !*reg_patch)
+		return 0;
+
+	buf = kstrdup(reg_patch, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	cur = buf;
+	while ((tok = strsep(&cur, ",")) != NULL) {
+		struct imx681_reg reg;
+		char *val_str;
+		u32 addr, val;
+
+		tok = strim(tok);
+		if (!*tok)
+			continue;
+
+		val_str = strchr(tok, '=');
+		if (!val_str) {
+			dev_err(imx681->dev,
+				"reg_patch: \"%s\" is not ADDR=VAL\n", tok);
+			ret = -EINVAL;
+			break;
+		}
+		*val_str++ = '\0';
+
+		if (kstrtou32(strim(tok), 0, &addr) ||
+		    kstrtou32(strim(val_str), 0, &val) ||
+		    addr > 0xffff || val > 0xff) {
+			dev_err(imx681->dev,
+				"reg_patch: bad address or value in \"%s=%s\"\n",
+				tok, val_str);
+			ret = -EINVAL;
+			break;
+		}
+
+		reg.address = addr;
+		reg.val = val;
+
+		dev_info(imx681->dev, "reg_patch: writing 0x%04x = 0x%02x\n",
+			 reg.address, reg.val);
+
+		ret = imx681_write_regs(imx681, &reg, 1);
+		if (ret)
+			break;
+	}
+
+	kfree(buf);
+	return ret;
+}
+
+/*
+ * The pixel-array constants above are derived from the mode tables, not
+ * measured. These are the CCS/SMIA++ array limits; if this part implements
+ * them the values printed here should replace those #defines. Logged rather
+ * than used, because a wrong array size read from a register this part may
+ * not implement is worse than a conservative constant.
+ */
+static void imx681_log_array_limits(struct imx681 *imx681)
+{
+	u64 xmin = 0, ymin = 0, xmax = 0, ymax = 0;
+	int r1, r2, r3, r4;
+
+	r1 = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_X_ADDR_MIN), &xmin, NULL);
+	r2 = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_Y_ADDR_MIN), &ymin, NULL);
+	r3 = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_X_ADDR_MAX), &xmax, NULL);
+	r4 = cci_read(imx681->regmap, CCI_REG16(IMX681_REG_Y_ADDR_MAX), &ymax, NULL);
+
+	if (r1 || r2 || r3 || r4) {
+		dev_info(imx681->dev,
+			 "CCS array limits unreadable (%d %d %d %d)\n",
+			 r1, r2, r3, r4);
+		return;
+	}
+
+	dev_info(imx681->dev,
+		 "CCS array limits: x %llu..%llu  y %llu..%llu  (driver assumes native %ux%u, active %ux%u at %u,%u)\n",
+		 xmin, xmax, ymin, ymax,
+		 IMX681_NATIVE_WIDTH, IMX681_NATIVE_HEIGHT,
+		 IMX681_ACTIVE_WIDTH, IMX681_ACTIVE_HEIGHT,
+		 IMX681_ACTIVE_LEFT, IMX681_ACTIVE_TOP);
+}
+
 static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct imx681 *imx681 = to_imx681(sd);
@@ -1430,31 +1611,11 @@ static int imx681_set_stream(struct v4l2_subdev *sd, int enable)
 	}
 
 
-	/*
-	 * Gated on the extra block because mode 0 is the only mode that has
-	 * one -- that keeps a stray mode0_class from leaking into a mode that
-	 * already works. Logged per register, and only when it actually
-	 * writes, so dmesg states exactly which of the four were applied.
-	 */
-	if (imx681->cur_mode->extra.num_of_regs && mode0_class) {
-		unsigned int i;
+	ret = imx681_apply_reg_patch(imx681);
+	if (ret)
+		goto err;
 
-		for (i = 0; i < ARRAY_SIZE(imx681_mode0_class_regs); i++) {
-			if (!(mode0_class & (1u << i)))
-				continue;
-
-			dev_info(imx681->dev,
-				 "mode0_class=0x%x: writing 0x%04x = 0x%02x\n",
-				 mode0_class,
-				 imx681_mode0_class_regs[i].address,
-				 imx681_mode0_class_regs[i].val);
-
-			ret = imx681_write_regs(imx681,
-						&imx681_mode0_class_regs[i], 1);
-			if (ret)
-				goto err;
-		}
-	}
+	imx681_log_array_limits(imx681);
 
 	/*
 	 * No recovered table sets frame_length_lines, so ask the sensor what
@@ -1636,11 +1797,53 @@ static const struct v4l2_subdev_video_ops imx681_video_ops = {
 	.s_stream = imx681_set_stream,
 };
 
+/*
+ * libcamera requires this and says so by name when it is missing:
+ *
+ *   'imx681 1-0010': Unable to get rectangle 0 on pad 0/0: Inappropriate ioctl
+ *   'imx681 1-0010': The sensor kernel driver needs to be fixed
+ *   'imx681 1-0010': The PixelArrayActiveAreas property has been defaulted
+ *
+ * Without it PixelArrayActiveAreas defaults to (0,0)/4032x3024, which happens
+ * to be nearly right for 4032x3024 and is wrong for the other five modes --
+ * all of which crop, none of them from the origin.
+ */
+static int imx681_get_selection(struct v4l2_subdev *sd,
+				struct v4l2_subdev_state *sd_state,
+				struct v4l2_subdev_selection *sel)
+{
+	struct imx681 *imx681 = to_imx681(sd);
+
+	switch (sel->target) {
+	case V4L2_SEL_TGT_CROP:
+		sel->r = imx681->cur_mode->crop;
+		return 0;
+
+	case V4L2_SEL_TGT_NATIVE_SIZE:
+		sel->r.left = 0;
+		sel->r.top = 0;
+		sel->r.width = IMX681_NATIVE_WIDTH;
+		sel->r.height = IMX681_NATIVE_HEIGHT;
+		return 0;
+
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+		sel->r.left = IMX681_ACTIVE_LEFT;
+		sel->r.top = IMX681_ACTIVE_TOP;
+		sel->r.width = IMX681_ACTIVE_WIDTH;
+		sel->r.height = IMX681_ACTIVE_HEIGHT;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static const struct v4l2_subdev_pad_ops imx681_pad_ops = {
 	.enum_mbus_code = imx681_enum_mbus_code,
 	.enum_frame_size = imx681_enum_frame_size,
 	.get_fmt = v4l2_subdev_get_fmt,
 	.set_fmt = imx681_set_format,
+	.get_selection = imx681_get_selection,
 };
 
 static const struct v4l2_subdev_ops imx681_subdev_ops = {
