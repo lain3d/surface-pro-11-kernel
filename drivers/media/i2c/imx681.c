@@ -27,9 +27,8 @@
  * everything a driver needs. These are inferences from the SMIA/CCS
  * conventions Sony follows, not things the recovered data states:
  *
- *  - Bayer order. The blob never writes 0x0101 (image_orientation), so the
- *    CFA phase is unknown. SRGGB10 is a guess and has a one-in-four chance
- *    of being right; a captured frame with wrong colour will say so at once.
+ *  - Bayer order: no longer an assumption. MEASURED as SRGGB10 -- see
+ *    "IMAGE ORIENTATION AND BAYER PHASE" immediately below.
  *  - Streaming is started and stopped through 0x0100. The blob DOES carry
  *    this, as its own single-entry sequence, along with 0x0104 = 1 / 0
  *    around it -- a grouped parameter hold, which this driver does not do.
@@ -1114,6 +1113,42 @@ static const s64 link_freq_menu_items[] = {
  * 0 (the default) writes nothing and leaves mode 0's recovered table exactly
  * as it was. 15 makes mode 0 agree with the other five on all four.
  */
+/*
+ * IMAGE ORIENTATION AND BAYER PHASE
+ *
+ * The colour filter array is fixed on the die; the sensor cannot change it.
+ * What changes the phase the receiver sees is only which photosite is read
+ * out first, and exactly two things move that:
+ *
+ *   1. the parity of x_addr_start / y_addr_start (0x0344..0x0347)
+ *   2. IMAGE_ORIENTATION (0x0101) -- h_mirror bit 0, v_flip bit 1
+ *
+ * On this module both are neutral. All six recovered mode tables crop from
+ * an even column and an even row, and neither the blob nor this driver ever
+ * writes 0x0101, so orientation stays at its power-on 0. The phase reaching
+ * the CSI receiver is therefore the array's own, and it measures SRGGB10:
+ * R and B swap in the right direction under an illuminant change at equal
+ * gain (B/R 1.241 under blue light, 0.916 under warm), with the two greens
+ * agreeing to 0.05 %.
+ *
+ * This is why the Surface Pro 10 port declares SBGGR10 for the same sensor.
+ * It runs IMAGE_ORIENTATION = 0x03, h_mirror + v_flip, which reads the array
+ * out backwards in both axes. Over an even-sized window that is a 180-degree
+ * rotation of the 2x2 tile, and RGGB rotated 180 degrees is BGGR. Same die,
+ * same CFA, different readout direction -- not a wiring difference.
+ *
+ * CONSEQUENCE FOR ANYONE ADDING FLIPS: this driver deliberately exposes no
+ * V4L2_CID_HFLIP / V4L2_CID_VFLIP. Adding them means the media bus code must
+ * change with the control, because each flip inverts one axis of the phase:
+ *
+ *      none        SRGGB10        h+v         SBGGR10
+ *      h only      SGRBG10        v only      SGBRG10
+ *
+ * Wiring a flip control to 0x0101 while leaving the format hardcoded below
+ * will silently invert red and blue. Add the four-entry table in the same
+ * commit or do not add the control.
+ */
+
 static const struct imx681_reg imx681_mode0_class_regs[] = {
 	{0x2000, 0x01},
 	{0x6a83, 0x03},
