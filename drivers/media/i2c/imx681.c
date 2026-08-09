@@ -159,6 +159,8 @@ struct imx681_mode {
 	u32 width;
 	u32 height;
 	u32 hts;
+	/* Frame length in lines, from 0x033e/0x033f of reg_list. */
+	u32 vts;
 	u32 link_freq_index;
 	struct imx681_reg_list reg_list;
 	/* Optional second sequence, written after reg_list. Mode 0 only. */
@@ -968,8 +970,8 @@ static const struct imx681_reg imx681_mode_3840x2160_1[] = {
 	{0x0112, 0x0a},
 	{0x0113, 0x0a},
 	{0x0114, 0x00},
-	{0x0342, 0x15},
-	{0x0343, 0x20},
+	{0x0342, 0x16},
+	{0x0343, 0x00},
 	{0x033d, 0x00},
 	{0x033e, 0x08},
 	{0x033f, 0xaa},
@@ -1221,6 +1223,7 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3520,
 		.height = 2640,
 		.hts = 6752,
+		.vts = 3554,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3520x2640),
@@ -1232,6 +1235,7 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 4032,
 		.height = 3024,
 		.hts = 6752,
+		.vts = 3554,
 		.link_freq_index = 0,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_4032x3024),
@@ -1247,6 +1251,7 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3840,
 		.height = 2640,
 		.hts = 6752,
+		.vts = 3554,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2640),
@@ -1258,6 +1263,7 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3660,
 		.height = 2440,
 		.hts = 6752,
+		.vts = 3554,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3660x2440),
@@ -1302,6 +1308,7 @@ static const struct imx681_mode supported_modes[] = {
 		.width = 3840,
 		.height = 2160,
 		.hts = 6752,
+		.vts = 3554,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_2),
@@ -1312,7 +1319,8 @@ static const struct imx681_mode supported_modes[] = {
 	{
 		.width = 3840,
 		.height = 2160,
-		.hts = 5408,
+		.hts = 5632,
+		.vts = 2218,
 		.link_freq_index = 1,
 		.reg_list = {
 			.num_of_regs = ARRAY_SIZE(imx681_mode_3840x2160_1),
@@ -1751,13 +1759,33 @@ static void imx681_fill_format(const struct imx681_mode *mode,
 	fmt->colorspace = V4L2_COLORSPACE_RAW;
 }
 
+/*
+ * Everything that has to follow the active mode, in one place, because
+ * set_fmt and set_frame_interval both change it.
+ */
+static void imx681_set_mode_controls(struct imx681 *imx681,
+				     const struct imx681_mode *mode)
+{
+	s64 hblank;
+
+	imx681->cur_mode = mode;
+	__v4l2_ctrl_s_ctrl(imx681->link_freq, mode->link_freq_index);
+	__v4l2_ctrl_s_ctrl_int64(imx681->pixel_rate, imx681_pixel_rate(mode));
+
+	hblank = mode->hts - mode->width;
+	__v4l2_ctrl_modify_range(imx681->hblank, hblank, hblank, 1, hblank);
+
+	__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
+				 IMX681_VTS_MAX - mode->height, 1,
+				 IMX681_VTS_FALLBACK(mode->height) - mode->height);
+}
+
 static int imx681_set_format(struct v4l2_subdev *sd,
 			     struct v4l2_subdev_state *state,
 			     struct v4l2_subdev_format *fmt)
 {
 	struct imx681 *imx681 = to_imx681(sd);
 	const struct imx681_mode *mode;
-	s64 hblank;
 
 	mode = v4l2_find_nearest_size(supported_modes,
 				      ARRAY_SIZE(supported_modes),
@@ -1770,16 +1798,7 @@ static int imx681_set_format(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		return 0;
 
-	imx681->cur_mode = mode;
-	__v4l2_ctrl_s_ctrl(imx681->link_freq, mode->link_freq_index);
-	__v4l2_ctrl_s_ctrl_int64(imx681->pixel_rate, imx681_pixel_rate(mode));
-
-	hblank = mode->hts - mode->width;
-	__v4l2_ctrl_modify_range(imx681->hblank, hblank, hblank, 1, hblank);
-
-	__v4l2_ctrl_modify_range(imx681->vblank, IMX681_VBLANK_MIN,
-				 IMX681_VTS_MAX - mode->height, 1,
-				 IMX681_VTS_FALLBACK(mode->height) - mode->height);
+	imx681_set_mode_controls(imx681, mode);
 
 	return 0;
 }
@@ -1838,12 +1857,134 @@ static int imx681_get_selection(struct v4l2_subdev *sd,
 	return -EINVAL;
 }
 
+
+/*
+ * Frame interval, as a period: hts * vts clocks at the mode's pixel rate. Both
+ * halves are transcribed from the mode's own register table, so this cannot
+ * drift away from what the sensor is actually programmed with.
+ *
+ * CAVEAT, and it is a real one: the absolute numbers inherit the unresolved
+ * vt-clock question in design/camera-state-20260807.md section 6.3 -- the burst
+ * rate measured on the wire is half the rate derived this way. The RATIO
+ * between two modes is unaffected by a common factor, and the ratio is what
+ * picks a mode, so selection is correct even while the absolute value may not
+ * be. Do not present these as measured frame rates until 6.3 is closed.
+ */
+static void imx681_frame_interval(const struct imx681_mode *mode,
+				  struct v4l2_fract *interval)
+{
+	interval->numerator = mode->hts * mode->vts;
+	interval->denominator = imx681_pixel_rate(mode);
+}
+
+static int imx681_enum_frame_interval(struct v4l2_subdev *sd,
+				      struct v4l2_subdev_state *state,
+				      struct v4l2_subdev_frame_interval_enum *fie)
+{
+	unsigned int i, n = 0;
+
+	if (fie->code != MEDIA_BUS_FMT_SRGGB10_1X10)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		const struct imx681_mode *mode = &supported_modes[i];
+
+		if (mode->width != fie->width || mode->height != fie->height)
+			continue;
+		if (n++ != fie->index)
+			continue;
+
+		imx681_frame_interval(mode, &fie->interval);
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int imx681_get_frame_interval(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_state *state,
+				     struct v4l2_subdev_frame_interval *fi)
+{
+	struct imx681 *imx681 = to_imx681(sd);
+
+	if (fi->pad != 0)
+		return -EINVAL;
+
+	imx681_frame_interval(imx681->cur_mode, &fi->interval);
+
+	return 0;
+}
+
+/*
+ * Pick, among the modes matching the format already set, the one whose interval
+ * is closest to the request. This is what makes 3840x2160_1 reachable at all:
+ * it is the same size as _2, and set_fmt resolves size with
+ * v4l2_find_nearest_size(), which returns the FIRST entry of equal error.
+ *
+ * Note the ordering contract, which is ordinary V4L2 but worth stating: setting
+ * the format resets the mode to the first match for that size (_2, the slower
+ * and safer one), so a frame interval must be set AFTER the format, not before.
+ */
+static int imx681_set_frame_interval(struct v4l2_subdev *sd,
+				     struct v4l2_subdev_state *state,
+				     struct v4l2_subdev_frame_interval *fi)
+{
+	struct imx681 *imx681 = to_imx681(sd);
+	const struct imx681_mode *best = NULL;
+	const struct v4l2_mbus_framefmt *fmt;
+	u64 best_err = U64_MAX;
+	unsigned int i;
+
+	if (fi->pad != 0)
+		return -EINVAL;
+	if (!fi->interval.numerator || !fi->interval.denominator)
+		return -EINVAL;
+
+	fmt = v4l2_subdev_state_get_format(state, 0);
+
+	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
+		const struct imx681_mode *mode = &supported_modes[i];
+		struct v4l2_fract have;
+		u64 a, b, err;
+
+		if (mode->width != fmt->width || mode->height != fmt->height)
+			continue;
+
+		imx681_frame_interval(mode, &have);
+
+		/* Cross-multiply rather than divide, so nothing rounds to zero. */
+		a = (u64)have.numerator * fi->interval.denominator;
+		b = (u64)fi->interval.numerator * have.denominator;
+		err = a > b ? a - b : b - a;
+
+		if (err < best_err) {
+			best_err = err;
+			best = mode;
+		}
+	}
+
+	if (!best)
+		return -EINVAL;
+
+	imx681_frame_interval(best, &fi->interval);
+
+	if (fi->which == V4L2_SUBDEV_FORMAT_TRY)
+		return 0;
+
+	imx681_set_mode_controls(imx681, best);
+
+	return 0;
+}
+
 static const struct v4l2_subdev_pad_ops imx681_pad_ops = {
 	.enum_mbus_code = imx681_enum_mbus_code,
 	.enum_frame_size = imx681_enum_frame_size,
 	.get_fmt = v4l2_subdev_get_fmt,
 	.set_fmt = imx681_set_format,
 	.get_selection = imx681_get_selection,
+	.enum_frame_interval = imx681_enum_frame_interval,
+	.get_frame_interval = imx681_get_frame_interval,
+	.set_frame_interval = imx681_set_frame_interval,
 };
 
 static const struct v4l2_subdev_ops imx681_subdev_ops = {
