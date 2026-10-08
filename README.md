@@ -18,7 +18,7 @@ scripts, and userspace patches. In particular:
 
 - [Camera state and measured fixes](https://github.com/lain3d/surface-pro-11-research/blob/main/design/camera-state-20260807.md)
 - [Upstream handoff and remaining limits](https://github.com/lain3d/surface-pro-11-research/blob/main/design/upstream.md)
-- [libcamera, FFmpeg, and libaperture patches](https://github.com/lain3d/surface-pro-11-research/tree/main/patches)
+- [libcamera and FFmpeg patches; libaperture findings](https://github.com/lain3d/surface-pro-11-research/tree/main/patches)
 
 ## Branch map
 
